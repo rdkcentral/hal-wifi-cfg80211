@@ -8026,6 +8026,11 @@ INT wifi_setNeighborReports(UINT apIndex,
     return RETURN_OK;
 }
 
+INT wifi_getApInterworkingElement(INT apIndex, wifi_InterworkingElement_t *output_struct)
+{
+    return RETURN_OK;
+}
+
 #ifdef _WIFI_HAL_TEST_
 int main(int argc,char **argv)
 {
