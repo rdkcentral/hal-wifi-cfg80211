@@ -83,9 +83,6 @@ AC_FUNC_MALLOC
 
 AC_CONFIG_FILES(
 	source/wifi/Makefile
-	source/dhcpv4c/Makefile
-	source/platform/Makefile
-	source/hal-ethsw/Makefile
 	source/Makefile
 	Makefile
 )
