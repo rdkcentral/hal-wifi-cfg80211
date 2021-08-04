@@ -22,6 +22,13 @@
 * Licensed under the BSD-3 license
 */
 
+/* Code in rxStatsInfo_callback and other callbacks is credited as follows:
+Copyright (c) 2007, 2008    Johannes Berg
+Copyright (c) 2007        Andy Lutomirski
+Copyright (c) 2007        Mike Kershaw
+Copyright (c) 2008-2009        Luis R. Rodriguez
+Licensed under the ISC license
+*/
 
 #define HAL_NETLINK_IMPL
 
@@ -6994,15 +7001,6 @@ INT wifi_delApAclDevices(INT apIndex)
 
     return RETURN_OK;
 }
-
-//Code here, in rxStatsInfo_callback, txStatsInfo_callback and in chanSurveyInfo_callback originates from:
-/*
-Copyright (c) 2007, 2008	Johannes Berg
-Copyright (c) 2007		Andy Lutomirski
-Copyright (c) 2007		Mike Kershaw
-Copyright (c) 2008-2009		Luis R. Rodriguez
-Licensed under the ISC license
-*/
 
 #ifdef HAL_NETLINK_IMPL
 static int rxStatsInfo_callback(struct nl_msg *msg, void *arg) {
