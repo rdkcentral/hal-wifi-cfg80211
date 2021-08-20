@@ -2640,7 +2640,21 @@ INT wifi_getSSIDMACAddress(INT ssidIndex, CHAR *output_string) //Tr181
 //Not all implementations may need this function.  If not needed for a particular implementation simply return no-error (0)
 INT wifi_applySSIDSettings(INT ssidIndex)
 {
-    return wifi_reloadAp(ssidIndex);
+    BOOL status = false;
+
+    wifi_getApEnable(ssidIndex,&status);
+    // Do not apply when ssid index is disabled
+    if (status == false)
+        return RETURN_OK;
+
+    /* Doing full remove and add for ssid Index
+     * Not all hostapd options are supported with reload
+     * for example macaddr_acl
+     */
+    if(wifi_setApEnable(ssidIndex,false) != RETURN_OK)
+           return RETURN_ERR;
+
+    return wifi_setApEnable(ssidIndex,true);
 }
 
 //Start the wifi scan and get the result into output buffer for RDKB to parser. The result will be used to manage endpoint list
@@ -3822,7 +3836,12 @@ INT wifi_addApAclDevice(INT apIndex, CHAR *DeviceMacAddress)
     char cmd[MAX_CMD_SIZE]={'\0'};
     char buf[MAX_BUF_SIZE]={'\0'};
 
+#if 0
     sprintf(cmd, "hostapd_cli -i %s%d accept_acl ADD_MAC %s", AP_PREFIX,apIndex,DeviceMacAddress);
+    if(_syscmd(cmd,buf,sizeof(buf)))
+        return RETURN_ERR;
+#endif
+    sprintf(cmd, "echo '%s' >> %s%d", DeviceMacAddress, ACL_PREFIX, apIndex);
     if(_syscmd(cmd,buf,sizeof(buf)))
         return RETURN_ERR;
 
@@ -3836,7 +3855,13 @@ INT wifi_delApAclDevice(INT apIndex, CHAR *DeviceMacAddress)
     char cmd[MAX_CMD_SIZE]={'\0'};
     char buf[MAX_BUF_SIZE]={'\0'};
 
+#if 0
     sprintf(cmd, "hostapd_cli -i %s%d accept_acl DEL_MAC %s", AP_PREFIX,apIndex,DeviceMacAddress);
+    if(_syscmd(cmd,buf,sizeof(buf)))
+        return RETURN_ERR;
+
+#endif
+    sprintf(cmd, "sed -i '/%s/d' %s%d ", DeviceMacAddress, ACL_PREFIX, apIndex);
     if(_syscmd(cmd,buf,sizeof(buf)))
         return RETURN_ERR;
 
@@ -6992,12 +7017,24 @@ INT wifi_steering_eventUnregister(void)
 
 INT wifi_delApAclDevices(INT apIndex)
 {
+#if 0
     char cmd[MAX_BUF_SIZE] = {0};
     char buf[MAX_BUF_SIZE] = {0};
 
+    /* Not reset proof solution  */
     snprintf(cmd, sizeof(cmd), "hostapd_cli -i %s%d accept_acl CLEAR", AP_PREFIX, apIndex);
     if(_syscmd(cmd,buf,sizeof(buf)))
         return RETURN_ERR;
+#endif
+    char fname[100];
+    int fd;
+
+    snprintf(fname, sizeof(fname), "%s%d", ACL_PREFIX, apIndex);
+    fd = fopen(fname, "w");
+    if (!fd) {
+            return RETURN_ERR;
+    }
+    fclose(fd);
 
     return RETURN_OK;
 }
