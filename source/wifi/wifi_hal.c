@@ -1577,7 +1577,7 @@ INT wifi_setRadioChannel(INT radioIndex, ULONG channel)	//RDKB	//AP only
         }
     }
 
-    for(int i=0; i<=2;i++)
+    for(int i=0; i<=MAX_APS/NUMBER_OF_RADIOS;i++)
     {
         sprintf(config_file,"%s%d.conf",CONFIG_PREFIX,radioIndex+(2*i));
         wifi_hostapdWrite(config_file,&list,1);
@@ -2640,7 +2640,21 @@ INT wifi_getSSIDMACAddress(INT ssidIndex, CHAR *output_string) //Tr181
 //Not all implementations may need this function.  If not needed for a particular implementation simply return no-error (0)
 INT wifi_applySSIDSettings(INT ssidIndex)
 {
-    return wifi_reloadAp(ssidIndex);
+    BOOL status = false;
+
+    wifi_getApEnable(ssidIndex,&status);
+    // Do not apply when ssid index is disabled
+    if (status == false)
+        return RETURN_OK;
+
+    /* Doing full remove and add for ssid Index
+     * Not all hostapd options are supported with reload
+     * for example macaddr_acl
+     */
+    if(wifi_setApEnable(ssidIndex,false) != RETURN_OK)
+           return RETURN_ERR;
+
+    return wifi_setApEnable(ssidIndex,true);
 }
 
 //Start the wifi scan and get the result into output buffer for RDKB to parser. The result will be used to manage endpoint list
@@ -3750,7 +3764,7 @@ INT wifi_getApNumDevicesAssociated(INT apIndex, ULONG *output_ulong)
     char cmd[128]={0};
     char buf[128]={0};
 
-    if(apIndex > 3) //Currently supporting apIndex upto 3
+    if(apIndex > MAX_APS)
         return RETURN_ERR;
     //sprintf(cmd, "iw dev %s%d station dump | grep Station | wc -l", AP_PREFIX, apIndex);//alternate method
     sprintf(cmd, "hostapd_cli -i %s%d list_sta | wc -l", AP_PREFIX, apIndex);
@@ -3822,7 +3836,12 @@ INT wifi_addApAclDevice(INT apIndex, CHAR *DeviceMacAddress)
     char cmd[MAX_CMD_SIZE]={'\0'};
     char buf[MAX_BUF_SIZE]={'\0'};
 
+#if 0
     sprintf(cmd, "hostapd_cli -i %s%d accept_acl ADD_MAC %s", AP_PREFIX,apIndex,DeviceMacAddress);
+    if(_syscmd(cmd,buf,sizeof(buf)))
+        return RETURN_ERR;
+#endif
+    sprintf(cmd, "echo '%s' >> %s%d", DeviceMacAddress, ACL_PREFIX, apIndex);
     if(_syscmd(cmd,buf,sizeof(buf)))
         return RETURN_ERR;
 
@@ -3836,7 +3855,13 @@ INT wifi_delApAclDevice(INT apIndex, CHAR *DeviceMacAddress)
     char cmd[MAX_CMD_SIZE]={'\0'};
     char buf[MAX_BUF_SIZE]={'\0'};
 
+#if 0
     sprintf(cmd, "hostapd_cli -i %s%d accept_acl DEL_MAC %s", AP_PREFIX,apIndex,DeviceMacAddress);
+    if(_syscmd(cmd,buf,sizeof(buf)))
+        return RETURN_ERR;
+
+#endif
+    sprintf(cmd, "sed -i '/%s/d' %s%d ", DeviceMacAddress, ACL_PREFIX, apIndex);
     if(_syscmd(cmd,buf,sizeof(buf)))
         return RETURN_ERR;
 
@@ -5387,7 +5412,7 @@ INT wifi_getApAssociatedDeviceDiagnosticResult3(INT apIndex, wifi_associated_dev
     *output_array_size = 0;
     *associated_dev_array = NULL;
 
-    if (apIndex<0 || apIndex>3) //Currently supporting apIndex upto 3
+    if (apIndex<0 || apIndex>MAX_APS)
         return RETURN_ERR;
 
     wifi_getApNumDevicesAssociated(apIndex, output_array_size);
@@ -6992,12 +7017,24 @@ INT wifi_steering_eventUnregister(void)
 
 INT wifi_delApAclDevices(INT apIndex)
 {
+#if 0
     char cmd[MAX_BUF_SIZE] = {0};
     char buf[MAX_BUF_SIZE] = {0};
 
-    snprintf(cmd, sizeof(cmd), "hostapd_cli -i %s%d accept_acl CLEAR", AP_PREFIX, apIndex);
+   /* Not reset proof solution  */
+   snprintf(cmd, sizeof(cmd), "hostapd_cli -i %s%d accept_acl CLEAR", AP_PREFIX, apIndex);
     if(_syscmd(cmd,buf,sizeof(buf)))
         return RETURN_ERR;
+#endif
+    char fname[100];
+    int fd;
+
+    snprintf(fname, sizeof(fname), "%s%d", ACL_PREFIX, apIndex);
+    fd = fopen(fname, "w");
+    if (!fd) {
+            return RETURN_ERR;
+    }
+    fclose(fd);
 
     return RETURN_OK;
 }
@@ -8023,6 +8060,11 @@ INT wifi_setNeighborReports(UINT apIndex,
         }
     }
 
+    return RETURN_OK;
+}
+
+INT wifi_getApInterworkingElement(INT apIndex, wifi_InterworkingElement_t *output_struct)
+{
     return RETURN_OK;
 }
 
