@@ -1577,7 +1577,7 @@ INT wifi_setRadioChannel(INT radioIndex, ULONG channel)	//RDKB	//AP only
         }
     }
 
-    for(int i=0; i<=2;i++)
+    for(int i=0; i<=MAX_APS/NUMBER_OF_RADIOS;i++)
     {
         sprintf(config_file,"%s%d.conf",CONFIG_PREFIX,radioIndex+(2*i));
         wifi_hostapdWrite(config_file,&list,1);
