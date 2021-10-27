@@ -523,7 +523,10 @@ INT wifi_setLED(INT radioIndex, BOOL enable)
 {
    return 0;
 }
-
+INT wifi_setRadioAutoChannelRefreshPeriod(INT radioIndex, ULONG seconds)
+{
+   return RETURN_OK;
+}
 /**********************************************************************************
  *
  *  Wifi Subsystem level function prototypes 
