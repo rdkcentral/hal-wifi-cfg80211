@@ -1778,7 +1778,26 @@ INT wifi_getRadioOperatingChannelBandwidth(INT radioIndex, CHAR *output_string) 
     if (NULL == output_string)
         return RETURN_ERR;
 
-    snprintf(output_string, 64, (radioIndex == 0) ? "20MHz" : "40MHz");
+    WIFI_ENTRY_EXIT_DEBUG("Inside %s:%d\n",__func__, __LINE__);
+    char cmd[1024] = {0}, buf[64] = {0};
+    char interface_name[50] = {0};
+    int ret = 0, len=0;
+
+    snprintf(cmd, sizeof(cmd),"iw dev %s%d info | grep 'width' | cut -d  ' ' -f6",AP_PREFIX, radioIndex);
+    ret = _syscmd(cmd, buf, sizeof(buf));
+    printf("the ret is %d \n",ret);
+    if(ret != 0)
+    {
+         WIFI_ENTRY_EXIT_DEBUG("failed with Command %s %s:%d\n",cmd,__func__, __LINE__);
+         return RETURN_ERR;
+    }
+
+    len= strlen(buf);
+    buf[len-1] = '\0';
+    strcat(buf,"MHz");
+    snprintf(output_string, 64, "%s", buf);
+    WIFI_ENTRY_EXIT_DEBUG("Exiting %s:%d\n",__func__, __LINE__);
+
 #if 0
     //TODO: revisit below implementation
     char output_buf[8]={0};
@@ -8373,6 +8392,18 @@ int main(int argc,char **argv)
             printf("%s.\n", buf);
         else
             printf("Error returned\n");
+    }
+    if(strstr(argv[1],"wifi_getRadioOperatingChannelBandwidth")!=NULL)
+    {
+        if (argc <= 2)
+        {
+            printf("Insufficient arguments\n");
+            exit(-1);
+        }
+        char buf[64]= {'\0'};
+        wifi_getRadioOperatingChannelBandwidth(index,buf);
+        printf("Current bandwidth is %s \n",buf);
+        return 0;
     }
 
     WIFI_ENTRY_EXIT_DEBUG("Exiting %s:%d\n",__func__, __LINE__);
