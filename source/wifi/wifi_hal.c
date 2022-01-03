@@ -1786,13 +1786,13 @@ INT wifi_getRadioOperatingChannelBandwidth(INT radioIndex, CHAR *output_string) 
     snprintf(cmd, sizeof(cmd),"iw dev %s%d info | grep 'width' | cut -d  ' ' -f6",AP_PREFIX, radioIndex);
     ret = _syscmd(cmd, buf, sizeof(buf));
     printf("the ret is %d \n",ret);
-    if(ret != 0)
+    len= strlen(buf);
+    if((ret != 0) && (len == 0))
     {
          WIFI_ENTRY_EXIT_DEBUG("failed with Command %s %s:%d\n",cmd,__func__, __LINE__);
          return RETURN_ERR;
     }
 
-    len= strlen(buf);
     buf[len-1] = '\0';
     strcat(buf,"MHz");
     snprintf(output_string, 64, "%s", buf);
