@@ -146,6 +146,84 @@ typedef enum
     band_5 = 1,
 } wifi_band;
 
+#ifdef WIFI_HAL_VERSION_3
+
+// Return number of elements in array
+#ifndef ARRAY_SIZE
+#define ARRAY_SIZE(x)       (sizeof(x) / sizeof(x[0]))
+#endif /* ARRAY_SIZE */
+
+#ifndef ARRAY_AND_SIZE
+#define ARRAY_AND_SIZE(x)   (x),ARRAY_SIZE(x)
+#endif /* ARRAY_AND_SIZE */
+
+#define STRSCPY(dest, src)  memcpy((dest), (src), sizeof(src))
+#define WIFI_ITEM_STR(key, str)        {0, sizeof(str)-1, (int)key, (intptr_t)str}
+
+typedef struct {
+    int32_t         value;
+    int32_t         param;
+    intptr_t        key;
+    intptr_t        data;
+} wifi_secur_list;
+
+wifi_secur_list *       wifi_get_item_by_key(wifi_secur_list *list, int list_sz, int key);
+wifi_secur_list *       wifi_get_item_by_str(wifi_secur_list *list, int list_sz, const char *str);
+char *                  wifi_get_str_by_key(wifi_secur_list *list, int list_sz, int key);
+
+static wifi_secur_list map_security[] =
+{
+    WIFI_ITEM_STR(wifi_security_mode_none,                    "None"),
+    WIFI_ITEM_STR(wifi_security_mode_wep_64,                  "WEP-64"),
+    WIFI_ITEM_STR(wifi_security_mode_wep_128,                 "WEP-128"),
+    WIFI_ITEM_STR(wifi_security_mode_wpa_personal,            "WPA-Personal"),
+    WIFI_ITEM_STR(wifi_security_mode_wpa_enterprise,          "WPA-Enterprise"),
+    WIFI_ITEM_STR(wifi_security_mode_wpa2_personal,           "WPA2-Personal"),
+    WIFI_ITEM_STR(wifi_security_mode_wpa2_enterprise,         "WPA2-Enterprise"),
+    WIFI_ITEM_STR(wifi_security_mode_wpa_wpa2_personal,       "WPA-WPA2-Personal"),
+    WIFI_ITEM_STR(wifi_security_mode_wpa_wpa2_enterprise,     "WPA-WPA2-Enterprise")
+};
+
+wifi_secur_list * wifi_get_item_by_key(wifi_secur_list *list, int list_sz, int key)
+{
+    wifi_secur_list    *item;
+    int                i;
+
+    for (item = list,i = 0;i < list_sz; item++, i++) {
+        if ((int)(item->key) == key) {
+            return item;
+        }
+    }
+
+    return NULL;
+}
+
+char * wifi_get_str_by_key(wifi_secur_list *list, int list_sz, int key)
+{
+    wifi_secur_list    *item = wifi_get_item_by_key(list, list_sz, key);
+
+    if (!item) {
+        return "";
+    }
+
+    return (char *)(item->data);
+}
+
+wifi_secur_list * wifi_get_item_by_str(wifi_secur_list *list, int list_sz, const char *str)
+{
+    wifi_secur_list    *item;
+    int                i;
+
+    for (item = list,i = 0;i < list_sz; item++, i++) {
+        if (strcmp((char *)(item->data), str) == 0) {
+            return item;
+        }
+    }
+
+    return NULL;
+}
+#endif /* WIFI_HAL_VERSION_3 */
+
 #ifdef HAL_NETLINK_IMPL
 typedef struct {
     int id;
@@ -8411,4 +8489,232 @@ int main(int argc,char **argv)
 }
 
 #endif
-//<<
+
+#ifdef WIFI_HAL_VERSION_3
+
+INT wifi_setRadioOperatingParameters(wifi_radio_index_t index, wifi_radio_operationParam_t *operationParam)
+{
+    // The only par-radio parameter is a channel number, however there's a 'dynamic' API
+    // to change it ("wifi_pushRadioChannel2()") that is used instead.
+    return RETURN_OK;
+}
+
+INT wifi_getRadioOperatingParameters(wifi_radio_index_t index, wifi_radio_operationParam_t *operationParam)
+{
+    INT ret;
+    char band[128];
+    ULONG lval;
+    BOOL enabled;
+    char buf[256];
+
+    WIFI_ENTRY_EXIT_DEBUG("Inside %s:%d\n",__func__, __LINE__);
+    printf("Entering %s index = %d\n", __func__, (int)index);
+
+    ret = wifi_getRadioEnable(index, &enabled);
+    if (ret != RETURN_OK)
+    {
+        printf("%s: cannot get enabled state for radio index %d\n", __func__,
+                index);
+        return RETURN_ERR;
+    }
+    operationParam->enable = enabled;
+
+    memset(band, 0, sizeof(band));
+    ret = wifi_getRadioOperatingFrequencyBand(index, band);
+    if (ret != RETURN_OK)
+    {
+        printf("%s: cannot get radio band for radio index %d\n", __func__, index);
+        return false;
+    }
+
+    if (!strcmp(band, "2.4GHz"))
+    {
+        operationParam->band = WIFI_FREQUENCY_2_4_BAND;
+    }
+    else if (!strcmp(band, "5GHz"))
+    {
+        operationParam->band = WIFI_FREQUENCY_5_BAND;
+    }
+    else
+    {
+        printf("%s: cannot decode band for radio index %d ('%s')\n", __func__, index,
+            band);
+    }
+
+    memset(buf, 0, sizeof(buf));
+    ret = wifi_getRadioOperatingChannelBandwidth(index, buf); // XXX: handle errors
+    // XXX: only handle 20/40/80 modes for now
+    if (!strcmp(buf, "20MHz")) operationParam->channelWidth = WIFI_CHANNELBANDWIDTH_20MHZ;
+    else if (!strcmp(buf, "40MHz")) operationParam->channelWidth = WIFI_CHANNELBANDWIDTH_40MHZ;
+    else if (!strcmp(buf, "80MHz")) operationParam->channelWidth = WIFI_CHANNELBANDWIDTH_80MHZ;
+    else
+    {
+        printf("Unknown HT mode: %s\n", buf);
+        return false;
+    }
+
+    ret = wifi_getRadioChannel(index, &lval);
+    if (ret != RETURN_OK)
+    {
+        printf("%s: Failed to get channel number for radio index %d\n", __func__, index);
+        return false;
+    }
+    operationParam->channel = lval;
+    operationParam->csa_beacon_count = 15; // XXX: hardcoded for now
+
+    operationParam->countryCode = wifi_countrycode_PL; // XXX: hardcoded for now
+
+    WIFI_ENTRY_EXIT_DEBUG("Exiting %s:%d\n",__func__, __LINE__);
+    return RETURN_OK;
+}
+
+INT wifi_getRadioVapInfoMap(wifi_radio_index_t index, wifi_vap_info_map_t *map)
+{
+    INT ret;
+    int i;
+    BOOL enabled = false;
+    char buf[256];
+    wifi_secur_list *secur_item;
+    int vap_index;
+    INT mode;
+    map->num_vaps = 3; // XXX: this is a hack. For both radio let's support 3 vaps for now
+                       //      home, backhaul and onboard.
+    WIFI_ENTRY_EXIT_DEBUG("Inside %s:%d\n",__func__, __LINE__);
+    printf("Entering %s index = %d", __func__, (int)index);
+
+    map->vap_array[index].radio_index = index;
+    for (i = 0; i < 3; i++)
+    {
+        // XXX: hardcode vap indexes for now (0,1 - home, 2,3 - backhaul 6,7 - onboard)
+        if (index == 0)
+        {
+            if (i == 0) vap_index = 0;
+            else if (i == 1) vap_index = 2;
+            else if (i == 2) vap_index = 6;
+        }
+        else if (index == 1)
+        {
+            if (i == 0) vap_index = 1;
+            else if (i == 1) vap_index = 3;
+            else if (i == 2) vap_index = 7;
+        }
+        else
+        {
+            printf("Wrong radio index (%d)\n", index);
+            return RETURN_ERR;
+        }
+
+        STRSCPY(map->vap_array[i].bridge_name, "brlan0");
+
+        map->vap_array[i].vap_index = vap_index;
+
+        memset(buf, 0, sizeof(buf));
+        wifi_getApName(vap_index, buf); // XXX: error handling
+        STRSCPY(map->vap_array[i].vap_name, buf);
+
+        ret = wifi_getSSIDEnable(vap_index, &enabled);
+        if (ret != RETURN_OK)
+        {
+            printf("failed to get SSIDEnable for index %d\n", i);
+            return RETURN_ERR;
+        }
+        map->vap_array[i].u.bss_info.enabled = enabled;
+
+        memset(buf, 0, sizeof(buf));
+        wifi_getBaseBSSID(vap_index, buf);
+        sscanf(buf, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
+            &map->vap_array[i].u.bss_info.bssid[0],
+            &map->vap_array[i].u.bss_info.bssid[1],
+            &map->vap_array[i].u.bss_info.bssid[2],
+            &map->vap_array[i].u.bss_info.bssid[3],
+            &map->vap_array[i].u.bss_info.bssid[4],
+            &map->vap_array[i].u.bss_info.bssid[5]); // XXX: handle error
+
+        wifi_getApSsidAdvertisementEnable(vap_index, &enabled); // XXX: error handling
+        map->vap_array[i].u.bss_info.showSsid = enabled;
+
+        wifi_getApMacAddressControlMode(vap_index, &mode); // XXX: handle errors
+        if (mode == 0) map->vap_array[i].u.bss_info.mac_filter_enable = false;
+        else map->vap_array[i].u.bss_info.mac_filter_enable = true;
+
+        if (mode == 1) map->vap_array[i].u.bss_info.mac_filter_mode = wifi_mac_filter_mode_white_list;
+        else if (mode == 2) map->vap_array[i].u.bss_info.mac_filter_mode = wifi_mac_filter_mode_black_list; // XXX: handle wrong mode
+
+        memset(buf, 0, sizeof(buf));
+        wifi_getSSIDNameStatus(vap_index, buf); // XXX: error handling
+        STRSCPY(map->vap_array[i].u.bss_info.ssid, buf);
+
+        wifi_getApSecurityModeEnabled(vap_index, buf);
+
+        if (!(secur_item = wifi_get_item_by_str(ARRAY_AND_SIZE(map_security), buf)))
+        {
+            printf("ssid_index %d: Failed to decode security mode (%s)\n", vap_index, buf);
+            return false;
+        }
+        map->vap_array[i].u.bss_info.security.mode = secur_item->key;
+
+        memset(buf, 0, sizeof(buf));
+        wifi_getApSecurityKeyPassphrase(vap_index, buf); // XXX: error handling
+        STRSCPY(map->vap_array[i].u.bss_info.security.u.key.key, buf);
+
+        wifi_getNeighborReportActivation(vap_index, &enabled); // XXX: error handling
+        map->vap_array[i].u.bss_info.nbrReportActivated = enabled;
+
+        wifi_getBSSTransitionActivation(vap_index, &enabled); // XXX: error handling
+        map->vap_array[i].u.bss_info.bssTransitionActivated = enabled;
+
+        // TODO isolation
+    }
+    WIFI_ENTRY_EXIT_DEBUG("Exiting %s:%d\n",__func__, __LINE__);
+    return RETURN_OK;
+}
+
+INT wifi_createVAP(wifi_radio_index_t index, wifi_vap_info_map_t *map)
+{
+    unsigned int i;
+    wifi_vap_info_t *vap_info = NULL;
+    int acl_mode;
+    char *sec_str = NULL;
+
+    WIFI_ENTRY_EXIT_DEBUG("Inside %s:%d\n",__func__, __LINE__);
+    printf("Entering %s index = %d\n", __func__, (int)index);
+    for (i = 0; i < map->num_vaps; i++)
+    {
+        vap_info = &map->vap_array[i];
+        printf("Create VAP for ssid_index=%d (vap_num=%d)\n", vap_info->vap_index, i);
+
+        wifi_setSSIDEnable(vap_info->vap_index, vap_info->u.bss_info.enabled); // XXX: handle errors
+        if (vap_info->u.bss_info.mac_filter_enable == false) acl_mode = 0;
+        else
+        {
+            if (vap_info->u.bss_info.mac_filter_mode == wifi_mac_filter_mode_black_list) acl_mode = 2;
+            else acl_mode = 1;
+        }
+        wifi_setApMacAddressControlMode(vap_info->vap_index, acl_mode); // XXX: handle errors
+        wifi_setApSsidAdvertisementEnable(vap_info->vap_index, vap_info->u.bss_info.showSsid); // XXX: handle errors
+        wifi_setSSIDName(vap_info->vap_index, vap_info->u.bss_info.ssid); // XXX: handle errors
+
+        sec_str = wifi_get_str_by_key(ARRAY_AND_SIZE(map_security), vap_info->u.bss_info.security.mode);
+        if (sec_str)
+        {
+            wifi_setApSecurityModeEnabled(vap_info->vap_index, sec_str); // XXX: handle errors
+        }
+        else
+        {
+            printf("Cannot map security mode: %d\n", (int)vap_info->u.bss_info.security.mode);
+        }
+
+        wifi_setApSecurityKeyPassphrase(vap_info->vap_index, vap_info->u.bss_info.security.u.key.key); // XXX: handle errors, handle radius
+        // TODO: apisolation
+
+        wifi_setNeighborReportActivation(vap_info->vap_index, vap_info->u.bss_info.nbrReportActivated); // XXX: handle errors
+        wifi_setBSSTransitionActivation(vap_info->vap_index, vap_info->u.bss_info.bssTransitionActivated); // XXX: handle errors
+
+        printf("Calling wifi_applySSIDSettings for index: %d\n", vap_info->vap_index);
+        wifi_applySSIDSettings(vap_info->vap_index); // XXX: handle errors, don't call if no changes.
+    }
+    WIFI_ENTRY_EXIT_DEBUG("Exiting %s:%d\n",__func__, __LINE__);
+    return RETURN_OK;
+}
+
+#endif /* WIFI_HAL_VERSION_3 */
