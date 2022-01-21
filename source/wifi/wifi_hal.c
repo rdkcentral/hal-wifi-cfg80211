@@ -8717,4 +8717,10 @@ INT wifi_createVAP(wifi_radio_index_t index, wifi_vap_info_map_t *map)
     return RETURN_OK;
 }
 
+INT wifi_getHalCapability(wifi_hal_capability_t *cap)
+{
+    //TODO
+    return RETURN_OK;
+}
+
 #endif /* WIFI_HAL_VERSION_3 */
