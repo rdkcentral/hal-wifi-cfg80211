@@ -8723,4 +8723,28 @@ INT wifi_getHalCapability(wifi_hal_capability_t *cap)
     return RETURN_OK;
 }
 
+INT wifi_setApSecurity(INT ap_index, wifi_vap_security_t *security)
+{
+    //TODO
+    return RETURN_OK;
+}
+
+INT wifi_getApSecurity(INT ap_index, wifi_vap_security_t *security)
+{
+    //TODO
+    return RETURN_OK;
+}
+
 #endif /* WIFI_HAL_VERSION_3 */
+
+#ifdef WIFI_HAL_VERSION_3_PHASE2
+INT wifi_getApAssociatedDevice(INT ap_index, mac_address_t *output_deviceMacAddressArray, UINT maxNumDevices, UINT *output_numDevices)
+{
+     return RETURN_OK;
+}
+#else
+INT wifi_getApAssociatedDevice(INT ap_index, CHAR *output_buf, INT output_buf_size)
+{
+     return RETURN_OK;
+}
+#endif
