@@ -157,7 +157,6 @@ typedef enum
 #define ARRAY_AND_SIZE(x)   (x),ARRAY_SIZE(x)
 #endif /* ARRAY_AND_SIZE */
 
-#define STRSCPY(dest, src)  memcpy((dest), (src), sizeof(src))
 #define WIFI_ITEM_STR(key, str)        {0, sizeof(str)-1, (int)key, (intptr_t)str}
 
 typedef struct {
@@ -8604,13 +8603,13 @@ INT wifi_getRadioVapInfoMap(wifi_radio_index_t index, wifi_vap_info_map_t *map)
             return RETURN_ERR;
         }
 
-        STRSCPY(map->vap_array[i].bridge_name, "brlan0");
+        strncpy(map->vap_array[i].bridge_name, "brlan0", sizeof(map->vap_array[i].bridge_name) - 1);
 
         map->vap_array[i].vap_index = vap_index;
 
         memset(buf, 0, sizeof(buf));
         wifi_getApName(vap_index, buf); // XXX: error handling
-        STRSCPY(map->vap_array[i].vap_name, buf);
+        strncpy(map->vap_array[i].vap_name, buf, sizeof(map->vap_array[i].vap_name) - 1);
 
         ret = wifi_getSSIDEnable(vap_index, &enabled);
         if (ret != RETURN_OK)
@@ -8642,7 +8641,7 @@ INT wifi_getRadioVapInfoMap(wifi_radio_index_t index, wifi_vap_info_map_t *map)
 
         memset(buf, 0, sizeof(buf));
         wifi_getSSIDNameStatus(vap_index, buf); // XXX: error handling
-        STRSCPY(map->vap_array[i].u.bss_info.ssid, buf);
+        strncpy(map->vap_array[i].u.bss_info.ssid, buf, sizeof(map->vap_array[i].u.bss_info.ssid) - 1);
 
         wifi_getApSecurityModeEnabled(vap_index, buf);
 
@@ -8655,7 +8654,7 @@ INT wifi_getRadioVapInfoMap(wifi_radio_index_t index, wifi_vap_info_map_t *map)
 
         memset(buf, 0, sizeof(buf));
         wifi_getApSecurityKeyPassphrase(vap_index, buf); // XXX: error handling
-        STRSCPY(map->vap_array[i].u.bss_info.security.u.key.key, buf);
+        strncpy(map->vap_array[i].u.bss_info.security.u.key.key, buf, sizeof(map->vap_array[i].u.bss_info.security.u.key.key) - 1);
 
         wifi_getNeighborReportActivation(vap_index, &enabled); // XXX: error handling
         map->vap_array[i].u.bss_info.nbrReportActivated = enabled;
