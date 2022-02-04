@@ -8662,7 +8662,8 @@ INT wifi_getRadioVapInfoMap(wifi_radio_index_t index, wifi_vap_info_map_t *map)
         wifi_getBSSTransitionActivation(vap_index, &enabled); // XXX: error handling
         map->vap_array[i].u.bss_info.bssTransitionActivated = enabled;
 
-        // TODO isolation
+        wifi_getApIsolationEnable(vap_index, &enabled);
+        map->vap_array[i].u.bss_info.isolation = enabled;
     }
     WIFI_ENTRY_EXIT_DEBUG("Exiting %s:%d\n",__func__, __LINE__);
     return RETURN_OK;
@@ -8704,7 +8705,7 @@ INT wifi_createVAP(wifi_radio_index_t index, wifi_vap_info_map_t *map)
         }
 
         wifi_setApSecurityKeyPassphrase(vap_info->vap_index, vap_info->u.bss_info.security.u.key.key); // XXX: handle errors, handle radius
-        // TODO: apisolation
+        wifi_setApIsolationEnable(vap_info->vap_index, vap_info->u.bss_info.isolation);
 
         wifi_setNeighborReportActivation(vap_info->vap_index, vap_info->u.bss_info.nbrReportActivated); // XXX: handle errors
         wifi_setBSSTransitionActivation(vap_info->vap_index, vap_info->u.bss_info.bssTransitionActivated); // XXX: handle errors
