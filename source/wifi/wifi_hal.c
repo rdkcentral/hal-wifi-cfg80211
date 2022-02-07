@@ -8529,10 +8529,12 @@ INT wifi_getRadioOperatingParameters(wifi_radio_index_t index, wifi_radio_operat
     if (!strcmp(band, "2.4GHz"))
     {
         operationParam->band = WIFI_FREQUENCY_2_4_BAND;
+        operationParam->variant = WIFI_80211_VARIANT_N;
     }
     else if (!strcmp(band, "5GHz"))
     {
         operationParam->band = WIFI_FREQUENCY_5_BAND;
+        operationParam->variant = WIFI_80211_VARIANT_AC;
     }
     else
     {
