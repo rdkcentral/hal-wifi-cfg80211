@@ -3862,9 +3862,15 @@ INT wifi_getApNumDevicesAssociated(INT apIndex, ULONG *output_ulong)
 {
     char cmd[128]={0};
     char buf[128]={0};
+    BOOL status = false;
 
     if(apIndex > MAX_APS)
         return RETURN_ERR;
+
+    wifi_getApEnable(apIndex,&status);
+    if (!status)
+        return RETURN_OK;
+
     //sprintf(cmd, "iw dev %s%d station dump | grep Station | wc -l", AP_PREFIX, apIndex);//alternate method
     sprintf(cmd, "hostapd_cli -i %s%d list_sta | wc -l", AP_PREFIX, apIndex);
     _syscmd(cmd, buf, sizeof(buf));
