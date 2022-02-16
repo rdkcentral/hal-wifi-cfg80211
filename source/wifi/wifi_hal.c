@@ -7694,13 +7694,16 @@ struct ctrl {
     char sockpath[128];
     char sockdir[128];
     char bss[IFNAMSIZ];
+    char reply[4096];
     int ssid_index;
     void (*cb)(struct ctrl *ctrl, int level, const char *buf, size_t len);
     void (*overrun)(struct ctrl *ctrl);
     struct wpa_ctrl *wpa;
     unsigned int ovfl;
+    size_t reply_len;
     int initialized;
     ev_timer retry;
+    ev_timer watchdog;
     ev_stat stat;
     ev_io io;
 };
@@ -7708,23 +7711,6 @@ static wifi_newApAssociatedDevice_callback clients_connect_cb;
 static wifi_apDisassociatedDevice_callback clients_disconnect_cb;
 static struct ctrl wpa_ctrl[MAX_APS];
 static int initialized;
-/* static void ctrl_close(struct ctrl *ctrl)
-{
-    if (ctrl->io.cb)
-        ev_io_stop(EV_DEFAULT_ &ctrl->io);
-    if (ctrl->retry.cb)
-        ev_timer_stop(EV_DEFAULT_ &ctrl->retry);
-    if (!ctrl->wpa)
-        return;
-
-    wpa_ctrl_detach(ctrl->wpa);
-    wpa_ctrl_close(ctrl->wpa);
-    ctrl->wpa = NULL;
-    LOGI("%s: closed", ctrl->bss);
-
-    if (ctrl->closed)
-        ctrl->closed(ctrl);
-} */
 
 static unsigned int ctrl_get_drops(struct ctrl *ctrl)
 {
@@ -7745,24 +7731,27 @@ static unsigned int ctrl_get_drops(struct ctrl *ctrl)
     return drop;
 }
 
-static void ctrl_ev_cb(EV_P_ struct ev_io *io, int events)
+static void ctrl_close(struct ctrl *ctrl)
 {
-    struct ctrl *ctrl = container_of(io, struct ctrl, io);
+    if (ctrl->io.cb)
+        ev_io_stop(EV_DEFAULT_ &ctrl->io);
+    if (ctrl->retry.cb)
+        ev_timer_stop(EV_DEFAULT_ &ctrl->retry);
+    if (!ctrl->wpa)
+        return;
+
+    wpa_ctrl_detach(ctrl->wpa);
+    wpa_ctrl_close(ctrl->wpa);
+    ctrl->wpa = NULL;
+    printf("WPA_CTRL: closed index=%d\n", ctrl->ssid_index);
+}
+
+static void ctrl_process(struct ctrl *ctrl)
+{
     const char *str;
-    size_t len;
-    char buf[1024];
     int drops;
     int level;
     int err;
-
-    memset(buf, 0, sizeof(buf));
-    len = sizeof(buf) - 1;
-    err = wpa_ctrl_recv(ctrl->wpa, buf, &len);
-    if (err < 0) {
-        if (errno == EAGAIN || errno == EWOULDBLOCK)
-            return;
-        goto err_close;
-    }
 
     /* Example events:
      *
@@ -7772,15 +7761,15 @@ static void ctrl_ev_cb(EV_P_ struct ev_io *io, int events)
      * <3>CTRL-EVENT-CONNECTED - Connection to 00:1d:73:73:88:ea completed [id=0 id_str=]
      * <3>CTRL-EVENT-DISCONNECTED bssid=00:1d:73:73:88:ea reason=3 locally_generated=1
      */
-    if (!(str = index(buf, '>')))
+    if (!(str = index(ctrl->reply, '>')))
         return;
-    if (sscanf(buf, "<%d>", &level) != 1)
+    if (sscanf(ctrl->reply, "<%d>", &level) != 1)
         return;
 
     str++;
 
     if (strncmp("AP-STA-CONNECTED ", str, 17) == 0) {
-        if (!(str = index(buf, ' ')))
+        if (!(str = index(ctrl->reply, ' ')))
             return;
         wifi_associated_dev_t sta;
         memset(&sta, 0, sizeof(sta));
@@ -7794,12 +7783,23 @@ static void ctrl_ev_cb(EV_P_ struct ev_io *io, int events)
         (clients_connect_cb)(ctrl->ssid_index, &sta);
         goto handled;
     }
+
     if (strncmp("AP-STA-DISCONNECTED ", str, 20) == 0) {
-        if (!(str = index(buf, ' ')))
+        if (!(str = index(ctrl->reply, ' ')))
             return;
 
         (clients_disconnect_cb)(ctrl->ssid_index,str,0);
         goto handled;
+    }
+
+    if (strncmp("CTRL-EVENT-TERMINATING", str, 22) == 0) {
+        printf("CTRL_WPA: handle TERMINATING event\n");
+        goto retry;
+    }
+
+    if (strncmp("AP-DISABLED", str, 11) == 0) {
+        printf("CTRL_WPA: handle AP-DISABLED\n");
+        goto retry;
     }
 
     printf("Event not supported!!\n");
@@ -7807,15 +7807,38 @@ static void ctrl_ev_cb(EV_P_ struct ev_io *io, int events)
 handled:
 
     if ((drops = ctrl_get_drops(ctrl))) {
-        printf("%s: dropped %d messages", ctrl->bss, drops);
+        printf("WPA_CTRL: dropped %d messages index=%d\n", drops, ctrl->ssid_index);
         if (ctrl->overrun)
             ctrl->overrun(ctrl);
     }
 
     return;
 
-err_close:
+retry:
+    printf("WPA_CTRL: closing\n");
+    ctrl_close(ctrl);
+    printf("WPA_CTRL: retrying from ctrl prcoess\n");
     ev_timer_again(EV_DEFAULT_ &ctrl->retry);
+}
+
+static void ctrl_ev_cb(EV_P_ struct ev_io *io, int events)
+{
+    struct ctrl *ctrl = container_of(io, struct ctrl, io);
+    int err;
+
+    memset(ctrl->reply, 0, sizeof(ctrl->reply));
+    ctrl->reply_len = sizeof(ctrl->reply) - 1;
+    err = wpa_ctrl_recv(ctrl->wpa, ctrl->reply, &ctrl->reply_len);
+    ctrl->reply[ctrl->reply_len] = 0;
+    if (err < 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK)
+            return;
+        ctrl_close(ctrl);
+        ev_timer_again(EV_A_ &ctrl->retry);
+        return;
+    }
+
+    ctrl_process(ctrl);
 }
 
 static int ctrl_open(struct ctrl *ctrl)
@@ -7857,7 +7880,7 @@ static void ctrl_stat_cb(EV_P_ ev_stat *stat, int events)
 {
     struct ctrl *ctrl = container_of(stat, struct ctrl, stat);
 
-    printf("%s: file state changed", ctrl->bss);
+    printf("WPA_CTRL: index=%d file state changed\n", ctrl->ssid_index);
     ctrl_open(ctrl);
 }
 
@@ -7865,9 +7888,11 @@ static void ctrl_retry_cb(EV_P_ ev_timer *timer, int events)
 {
     struct ctrl *ctrl = container_of(timer, struct ctrl, retry);
 
-    printf("%s: retrying", ctrl->bss);
-    if (ctrl_open(ctrl) < 0)
-        ev_timer_again(EV_DEFAULT_ &ctrl->retry);
+    printf("WPA_CTRL: index=%d retrying\n", ctrl->ssid_index);
+    if (ctrl_open(ctrl) == 0) {
+        printf("WPA_CTRL: retry successful\n");
+        ev_timer_stop(EV_DEFAULT_ &ctrl->retry);
+    }
 }
 
 int ctrl_enable(struct ctrl *ctrl)
@@ -7880,17 +7905,97 @@ int ctrl_enable(struct ctrl *ctrl)
         ev_stat_start(EV_DEFAULT_ &ctrl->stat);
     }
 
-    if (!ctrl->retry.cb)
+    if (!ctrl->retry.cb) {
         ev_timer_init(&ctrl->retry, ctrl_retry_cb, 0., 5.);
+    }
 
     return ctrl_open(ctrl);
 }
- 
+
+static void
+ctrl_msg_cb(char *buf, size_t len)
+{
+    struct ctrl *ctrl = container_of(buf, struct ctrl, reply);
+
+    printf("WPA_CTRL: unsolicited message: index=%d len=%zu msg=%s", ctrl->ssid_index, len, buf);
+    ctrl_process(ctrl);
+}
+
+static int ctrl_request(struct ctrl *ctrl, const char *cmd, size_t cmd_len, char *reply, size_t *reply_len)
+{
+    int err;
+
+    if (!ctrl->wpa)
+        return -1;
+    if (*reply_len < 2)
+        return -1;
+
+    (*reply_len)--;
+    ctrl->reply_len = sizeof(ctrl->reply);
+    err = wpa_ctrl_request(ctrl->wpa, cmd, cmd_len, ctrl->reply, &ctrl->reply_len, ctrl_msg_cb);
+    printf("WPA_CTRL: index=%d cmd='%s' err=%d\n", ctrl->ssid_index, cmd, err);
+    if (err < 0)
+        return err;
+
+    if (ctrl->reply_len > *reply_len)
+        ctrl->reply_len = *reply_len;
+
+    *reply_len = ctrl->reply_len;
+    memcpy(reply, ctrl->reply, *reply_len);
+    reply[*reply_len - 1] = 0;
+    printf("WPA_CTRL: index=%d reply='%s'\n", ctrl->ssid_index, reply);
+    return 0;
+}
+
+static void ctrl_watchdog_cb(EV_P_ ev_timer *timer, int events)
+{
+    const char *pong = "PONG";
+    const char *ping = "PING";
+    char reply[1024];
+    size_t len = sizeof(reply);
+    int err;
+    ULONG s, snum;
+    INT ret;
+    BOOL status;
+
+    printf("WPA_CTRL: watchdog cb\n");
+
+    ret = wifi_getSSIDNumberOfEntries(&snum);
+    if (ret != RETURN_OK) {
+        printf("%s: failed to get SSID count", __func__);
+        return;
+    }
+
+    if (snum > MAX_APS) {
+        printf("more ssid than supported! %lu\n", snum);
+        return;
+    }
+
+    for (s = 0; s < snum; s++) {
+        if (wifi_getApEnable(s, &status) != RETURN_OK) {
+            printf("%s: failed to get AP Enable for index: %d\n", __func__, s);
+            continue;
+        }
+        if (status == false) continue;
+
+        memset(reply, 0, sizeof(reply));
+        len = sizeof(reply);
+        printf("WPA_CTRL: pinging index=%d\n", wpa_ctrl[s].ssid_index);
+        err = ctrl_request(&wpa_ctrl[s], ping, strlen(ping), reply, &len);
+        if (err == 0 && len > strlen(pong) && !strncmp(reply, pong, strlen(pong)))
+            continue;
+
+        printf("WPA_CTRL: ping timeout index=%d\n", wpa_ctrl[s].ssid_index);
+        ctrl_close(&wpa_ctrl[s]);
+        printf("WPA_CTRL: ev_timer_again %d\n", s);
+        ev_timer_again(EV_DEFAULT_ &wpa_ctrl[s].retry);
+    }
+}
+
 static int init_wpa()
 {
     int ret = 0, i = 0;
     ULONG s, snum;
-    char * sock_path;
 
     ret = wifi_getSSIDNumberOfEntries(&snum);
     if (ret != RETURN_OK) {
@@ -7904,12 +8009,17 @@ static int init_wpa()
     }
 
     for (s = 0; s < snum; s++) {
+        memset(&wpa_ctrl[s], 0, sizeof(struct ctrl));
         sprintf(wpa_ctrl[s].sockpath, "%s%lu", SOCK_PREFIX, s);
         wpa_ctrl[s].ssid_index = s;
-        ctrl_open(&wpa_ctrl[s]);
         ctrl_enable(&wpa_ctrl[s]);
     }
+
+    ev_timer_init(&wpa_ctrl->watchdog, ctrl_watchdog_cb, 0., 30.);
+    ev_timer_again(EV_DEFAULT_ &wpa_ctrl->watchdog);
+
     initialized = 1;
+    printf("WPA_CTRL: initialized\n");
 
     return RETURN_OK;
 }
