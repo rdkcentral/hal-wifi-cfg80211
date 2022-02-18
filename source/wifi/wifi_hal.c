@@ -59,6 +59,7 @@ Licensed under the ISC license
 
 #define MAX_BUF_SIZE 128
 #define MAX_CMD_SIZE 1024
+#define MAX_POSSIBLE_CHANNEL_STRING_BUF 512
 #define IF_NAME_SIZE 50
 #define CONFIG_PREFIX "/nvram/hostapd"
 #define ACL_PREFIX "/tmp/hostapd-acl"
@@ -8835,9 +8836,174 @@ INT wifi_createVAP(wifi_radio_index_t index, wifi_vap_info_map_t *map)
     return RETURN_OK;
 }
 
+int parse_channel_list_int_arr(int radioIndex, char *pchannels, wifi_channels_list_t* chlistptr)
+{
+
+    char *token;
+    const char s[2] = ",";
+    int i =0, count =0;
+
+    /* get the first token */
+    token = strtok(pchannels, s);
+
+    /* walk through other tokens */
+    while( token != NULL ) {
+       count++;
+       chlistptr->channels_list[i] = atoi(token);
+       token = strtok(NULL, s);
+   }
+   return count;
+}
+
+static int getRadioCapabilities(int radioIndex, wifi_radio_capabilities_t *rcap)
+{
+
+    INT status;
+    wifi_channels_list_t *chlistp;
+    unsigned int *uarray;
+    CHAR output_string[64];
+    CHAR pchannels[128];
+
+    if(rcap == NULL)
+    {
+        return RETURN_ERR;
+    }
+
+    rcap->numSupportedFreqBand = 1;
+    if (1 == radioIndex)
+      rcap->band[0] = WIFI_FREQUENCY_5_BAND;
+    else
+      rcap->band[0] = WIFI_FREQUENCY_2_4_BAND;
+
+
+    chlistp = &(rcap->channel_list[0]);
+    memset(pchannels, 0, sizeof(pchannels));
+
+    /* possible number of radio channels */
+    status = wifi_getRadioPossibleChannels(radioIndex, pchannels);
+    {
+         printf("[wifi_hal dbg] : func[%s] line[%d] error_ret[%d] radio_index[%d] output[%s]\n", __FUNCTION__, __LINE__, status, radioIndex, output_string);
+    }
+    /* Number of channels and list*/
+    chlistp->num_channels = parse_channel_list_int_arr(radioIndex, pchannels, chlistp);
+
+    /* autoChannelSupported */
+    /* always ON with wifi_getRadioAutoChannelSupported */
+    rcap->autoChannelSupported = TRUE;
+
+    /* DCSSupported */
+    /* always ON with wifi_getRadioDCSSupported */
+    rcap->DCSSupported = TRUE;
+
+    /* zeroDFSSupported - TBD */
+    rcap->zeroDFSSupported = FALSE;
+
+    /* Supported Country List*/
+    memset(output_string, 0, sizeof(output_string));
+    status = wifi_getRadioCountryCode(radioIndex, output_string);
+    if( status != 0 ) {
+        printf("[wifi_hal dbg] : func[%s] line[%d] error_ret[%d] radio_index[%d] output[%s]\n", __FUNCTION__, __LINE__, status, radioIndex, output_string);
+        return RETURN_ERR;
+    } else {
+        printf("[wifi_hal dbg] : func[%s] line[%d], output [%s]\n", __FUNCTION__, __LINE__, output_string);
+    }
+    output_string[strlen(output_string) - 1] = '\0';
+    if(!strcmp(output_string,"US")){
+        rcap->countrySupported[0] = wifi_countrycode_US;
+        rcap->countrySupported[1] = wifi_countrycode_CA;
+    } else if (!strcmp(output_string,"CA")) {
+        rcap->countrySupported[0] = wifi_countrycode_CA;
+        rcap->countrySupported[1] = wifi_countrycode_US;
+    } else {
+        printf("[wifi_hal dbg] : func[%s] line[%d] radio_index[%d] Invalid Country [%s]\n", __FUNCTION__, __LINE__, radioIndex, output_string);
+    }
+
+    rcap->numcountrySupported = 2;
+
+    /* csi */
+    rcap->csi.maxDevices = 8;
+    rcap->csi.soudingFrameSupported = TRUE;
+
+    snprintf(rcap->ifaceName, 64, "wlan%d", radioIndex);
+
+    /* channelWidth - all supported bandwidths */
+    int i=0;
+    rcap->channelWidth[i] = 0;
+    if (rcap->band[i] & WIFI_FREQUENCY_2_4_BAND) {
+        rcap->channelWidth[i] |= (WIFI_CHANNELBANDWIDTH_20MHZ |
+                                WIFI_CHANNELBANDWIDTH_40MHZ);
+
+    }
+    else if (rcap->band[i] & (WIFI_FREQUENCY_5_BAND )) {
+        rcap->channelWidth[i] |= (WIFI_CHANNELBANDWIDTH_20MHZ |
+                                WIFI_CHANNELBANDWIDTH_40MHZ |
+                                WIFI_CHANNELBANDWIDTH_80MHZ | WIFI_CHANNELBANDWIDTH_160MHZ);
+    }
+
+
+    /* mode - all supported variants */
+    // rcap->mode[i] = WIFI_80211_VARIANT_H;
+    if (rcap->band[i] & WIFI_FREQUENCY_2_4_BAND ) {
+        rcap->mode[i] = (WIFI_80211_VARIANT_N);
+    }
+    else if (rcap->band[i] & WIFI_FREQUENCY_5_BAND ) {
+        rcap->mode[i] = ( WIFI_80211_VARIANT_AC );
+    }
+    rcap->maxBitRate[i] = ( rcap->band[i] & WIFI_FREQUENCY_2_4_BAND ) ? 300 :
+        ((rcap->band[i] & WIFI_FREQUENCY_5_BAND) ? 1734 : 0);
+
+    /* supportedBitRate - all supported bitrates */
+    rcap->supportedBitRate[i] = 0;
+    if (rcap->band[i] & WIFI_FREQUENCY_2_4_BAND) {
+        rcap->supportedBitRate[i] |= (WIFI_BITRATE_6MBPS | WIFI_BITRATE_9MBPS |
+                                    WIFI_BITRATE_11MBPS | WIFI_BITRATE_12MBPS);
+    }
+    else if (rcap->band[i] & (WIFI_FREQUENCY_5_BAND )) {
+        rcap->supportedBitRate[i] |= (WIFI_BITRATE_6MBPS | WIFI_BITRATE_9MBPS |
+                                    WIFI_BITRATE_12MBPS | WIFI_BITRATE_18MBPS | WIFI_BITRATE_24MBPS |
+                                    WIFI_BITRATE_36MBPS | WIFI_BITRATE_48MBPS | WIFI_BITRATE_54MBPS);
+    }
+
+
+    rcap->transmitPowerSupported_list[i].numberOfElements = 5;
+    uarray = rcap->transmitPowerSupported_list[i].transmitPowerSupported;
+    uarray[0]=12;
+    uarray[1]=25;
+    uarray[2]=50;
+    uarray[3]=75;
+    uarray[4]=100;
+    rcap->cipherSupported = 0;
+    rcap->cipherSupported |= WIFI_CIPHER_CAPA_ENC_TKIP | WIFI_CIPHER_CAPA_ENC_CCMP;
+    rcap->maxNumberVAPs = MAX_NUM_VAP_PER_RADIO;
+
+    return RETURN_OK;
+}
+
 INT wifi_getHalCapability(wifi_hal_capability_t *cap)
 {
-    //TODO
+    int i = 0, j = 0;
+    INT status;
+    WIFI_ENTRY_EXIT_DEBUG("Inside %s:%d\n",__func__, __LINE__);
+
+    memset(cap, 0, sizeof(wifi_hal_capability_t));
+
+    /* version */
+    cap->version.major = WIFI_HAL_MAJOR_VERSION;
+    cap->version.minor = WIFI_HAL_MINOR_VERSION;
+
+    /* number of radios platform property */
+    cap->wifi_prop.numRadios = 2; // number of radios
+
+    for(i=0; i < cap->wifi_prop.numRadios; i++)
+    {
+
+        status = getRadioCapabilities(i, &(cap->wifi_prop.radiocap[i]));
+        if (status != 0) {
+            printf("%s: getRadioCapabilities idx = %d\n", __FUNCTION__, i);
+            return RETURN_ERR;
+        }
+    }
+    WIFI_ENTRY_EXIT_DEBUG("Exiting %s:%d\n",__func__, __LINE__);
     return RETURN_OK;
 }
 
