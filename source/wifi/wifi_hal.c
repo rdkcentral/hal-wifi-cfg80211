@@ -8841,18 +8841,18 @@ int parse_channel_list_int_arr(int radioIndex, char *pchannels, wifi_channels_li
 
     char *token;
     const char s[2] = ",";
-    int i =0, count =0;
+    int count =0;
 
     /* get the first token */
     token = strtok(pchannels, s);
 
     /* walk through other tokens */
     while( token != NULL ) {
-       count++;
-       chlistptr->channels_list[i] = atoi(token);
-       token = strtok(NULL, s);
-   }
-   return count;
+        chlistptr->channels_list[count] = atoi(token);
+        count++;
+        token = strtok(NULL, s);
+    }
+    return count;
 }
 
 static int getRadioCapabilities(int radioIndex, wifi_radio_capabilities_t *rcap)
@@ -8882,7 +8882,7 @@ static int getRadioCapabilities(int radioIndex, wifi_radio_capabilities_t *rcap)
     /* possible number of radio channels */
     status = wifi_getRadioPossibleChannels(radioIndex, pchannels);
     {
-         printf("[wifi_hal dbg] : func[%s] line[%d] error_ret[%d] radio_index[%d] output[%s]\n", __FUNCTION__, __LINE__, status, radioIndex, output_string);
+         printf("[wifi_hal dbg] : func[%s] line[%d] error_ret[%d] radio_index[%d] output[%s]\n", __FUNCTION__, __LINE__, status, radioIndex, pchannels);
     }
     /* Number of channels and list*/
     chlistp->num_channels = parse_channel_list_int_arr(radioIndex, pchannels, chlistp);
