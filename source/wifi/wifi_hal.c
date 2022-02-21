@@ -2696,7 +2696,7 @@ INT wifi_setSSIDName(INT apIndex, CHAR *ssid_string)
     char config_file[MAX_BUF_SIZE] = {0};
 
     WIFI_ENTRY_EXIT_DEBUG("Inside %s:%d\n",__func__, __LINE__);
-    if(NULL == ssid_string || strlen(ssid_string) >= 32 )
+    if(NULL == ssid_string || strlen(ssid_string) >= 32 || strlen(ssid_string) == 0 )
         return RETURN_ERR;
 
     params.name = "ssid";
