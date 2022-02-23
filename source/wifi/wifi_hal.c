@@ -4316,6 +4316,8 @@ INT wifi_setApEnable(INT apIndex, BOOL enable)
         align_hostapd_config(apIndex);
         sprintf(config_file,"%s%d.conf",CONFIG_PREFIX,apIndex);
         //Hostapd will bring up this interface
+        sprintf(cmd, "hostapd_cli -i global raw REMOVE %s%d", AP_PREFIX, apIndex);
+        _syscmd(cmd, buf, sizeof(buf));
         sprintf(cmd, "hostapd_cli -i global raw ADD bss_config=phy%d:%s", apIndex, config_file);
         _syscmd(cmd, buf, sizeof(buf));
     }
