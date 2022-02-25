@@ -1863,7 +1863,6 @@ INT wifi_getRadioOperatingChannelBandwidth(INT radioIndex, CHAR *output_string) 
 
     snprintf(cmd, sizeof(cmd),"iw dev %s%d info | grep 'width' | cut -d  ' ' -f6",AP_PREFIX, radioIndex);
     ret = _syscmd(cmd, buf, sizeof(buf));
-    printf("the ret is %d \n",ret);
     len= strlen(buf);
     if((ret != 0) && (len == 0))
     {
@@ -2515,9 +2514,6 @@ INT wifi_getRadioTrafficStats2(INT radioIndex, wifi_radioTrafficStats2_t *output
         }
 
         GetIfacestatus(public_interface_name, public_interface_status);
-
-        printf("private_interface_name %s private_interface_status %s \n", private_interface_name, private_interface_status);
-        printf("public_interface_name %s public_interface_status %s \n", public_interface_name, public_interface_status);
 
         if (strcmp(private_interface_status, "1") == 0)
             wifi_halGetIfStats(private_interface_name, &private_radioTrafficStats);
