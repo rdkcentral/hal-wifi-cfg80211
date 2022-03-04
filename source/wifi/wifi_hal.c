@@ -57,8 +57,8 @@ Licensed under the ISC license
 #include <time.h>
 #define MAC_ALEN 6
 
-#define MAX_BUF_SIZE 128
-#define MAX_CMD_SIZE 1024
+#define MAX_BUF_SIZE 256
+#define MAX_CMD_SIZE 256
 #define MAX_POSSIBLE_CHANNEL_STRING_BUF 512
 #define IF_NAME_SIZE 50
 #define CONFIG_PREFIX "/nvram/hostapd"
@@ -88,9 +88,6 @@ Licensed under the ISC license
 #ifndef RADIO_PREFIX
 #define RADIO_PREFIX	"wlan"
 #endif
-
-#define MAX_BUF_SIZE 128
-#define MAX_CMD_SIZE 1024
 
 //Uncomment to enable debug logs
 //#define WIFI_DEBUG
@@ -907,7 +904,7 @@ INT wifi_getRadioCountryCode(INT radioIndex, CHAR *output_string)
 {
     if (NULL == output_string)
         return RETURN_ERR;
-    snprintf(output_string, 64, "841");
+    snprintf(output_string, 64, "US");
 
     return RETURN_OK;
 }
@@ -1489,35 +1486,28 @@ INT wifi_setRadioChannelMode(INT radioIndex, CHAR *channelMode, BOOL gOnlyFlag, 
 //The output_string is a max length 64 octet string that is allocated by the RDKB code.  Implementations must ensure that strings are not longer than this.
 INT wifi_getRadioPossibleChannels(INT radioIndex, CHAR *output_string)	//RDKB
 {
+    char cmd[MAX_CMD_SIZE] = {0}, output[64] = {0};
+    int ret, phyIndex;
+
     if (NULL == output_string) 
         return RETURN_ERR;
-    //TODO:read this from iw phy phyX info |grep MHz
-    snprintf(output_string, 64, (radioIndex == 0)?"1,2,3,4,5,6,7,8,9,10,11":"36,40,44,48,52,56,60,64,100,104,108,112,116,120,124,128,132,136,140");
-#if 0
-    char IFName[50] ={0};
-    char buf[MAX_BUF_SIZE] = {0};
-    char cmd[MAX_CMD_SIZE] = {0};
-    int count = 0;
-    if (NULL == output_string)
+    //Getting phy index corresponding to radio index
+    sprintf(cmd, "iw dev wlan0 info | grep wiphy | xargs | cut -d ' ' -f2", radioIndex);
+    ret = _syscmd(cmd, output, sizeof(output));
+    if ((ret != 0) || (strlen(output) == 0))
         return RETURN_ERR;
+    phyIndex = atoi(output);
+    printf("MANIII: phyIndex: %d\n", phyIndex);
 
-    //snprintf(output_string, 256, (radioIndex==0)?"1,6,11":"36,40");
-    if(radioIndex == 0)
-    {
-        GetInterfaceName(IFName,"/nvram/hostapd0.conf");
-        sprintf(cmd,"%s %s %s","iwlist",IFName,"channel  | grep Channel | grep -v 'Current Frequency' | grep 2'\\.' | cut -d ':' -f1 | tr -s ' ' | cut -d ' ' -f3 | sed 's/^0//g' | tr '\\n' ' ' | sed 's/ /,/g' | sed 's/,$/ /g'");
-    }
-    else if(radioIndex == 1)
-    {
-        GetInterfaceName(IFName,"/nvram/hostapd1.conf");
-        sprintf(cmd,"%s %s %s","iwlist",IFName,"channel  | grep Channel | grep -v 'Current Frequency' | grep '5\\.[1-9]' | cut -d ':' -f1 | tr -s ' ' | cut -d ' ' -f3 | tr '\\n' ' ' | sed 's/ /,/g' | sed 's/,$/ /g'");
-    }
-    _syscmd(cmd, buf, sizeof(buf));
-    if(strlen(buf) > 0)
-        strcpy(output_string,buf);
-    else
-        strcpy(output_string,"0");
-#endif
+    //Getting supported channel list
+    sprintf(cmd, "iw phy phy%d info | grep 'MHz.*\\[' | grep -v 'no IR' | grep -v 'disabled' | sed 's/^[[:space:]]*//g' | cut -d' ' -f4 | xargs | sed 's/\\[//g' | sed 's/\\] /,/g'", phyIndex);
+
+    ret = _syscmd(cmd, output, sizeof(output));
+    if ((ret != 0) || (strlen(output) == 0))
+        return RETURN_ERR;
+    snprintf(output_string, strlen(output)-1, "%s", output);
+    printf("MANIII: output_string: %s\n", output_string);
+
     return RETURN_OK;
 }
 
@@ -1863,7 +1853,6 @@ INT wifi_getRadioOperatingChannelBandwidth(INT radioIndex, CHAR *output_string) 
 
     snprintf(cmd, sizeof(cmd),"iw dev %s%d info | grep 'width' | cut -d  ' ' -f6",AP_PREFIX, radioIndex);
     ret = _syscmd(cmd, buf, sizeof(buf));
-    printf("the ret is %d \n",ret);
     len= strlen(buf);
     if((ret != 0) && (len == 0))
     {
@@ -2515,9 +2504,6 @@ INT wifi_getRadioTrafficStats2(INT radioIndex, wifi_radioTrafficStats2_t *output
         }
 
         GetIfacestatus(public_interface_name, public_interface_status);
-
-        printf("private_interface_name %s private_interface_status %s \n", private_interface_name, private_interface_status);
-        printf("public_interface_name %s public_interface_status %s \n", public_interface_name, public_interface_status);
 
         if (strcmp(private_interface_status, "1") == 0)
             wifi_halGetIfStats(private_interface_name, &private_radioTrafficStats);
@@ -8615,6 +8601,50 @@ INT wifi_setRadioOperatingParameters(wifi_radio_index_t index, wifi_radio_operat
     // The only par-radio parameter is a channel number, however there's a 'dynamic' API
     // to change it ("wifi_pushRadioChannel2()") that is used instead.
     return RETURN_OK;
+#if 0
+    bool enable;
+    char ChannelWidth[32]="";
+    enable = operationParam->enable;
+    if( wifi_setRadioEnable(index,enable) != RETURN_OK)
+    {
+        printf("wifi_setRadioEnable failed..index[%d]\n",index);
+        return RETURN_ERR;
+    }
+    printf("%s: radioIndex = %d, Enable=%d\n",
+                    __FUNCTION__, index, enable);
+    /* enable/disable auto channel mode */
+    enable = operationParam->autoChannelEnabled;
+    if( wifi_setRadioAutoChannelEnable(index,enable) != RETURN_OK)
+    {
+        printf("wifi_setRadioAutoChannelEnable failed for index: %d\n", index);
+        //return RETURN_ERR;
+    }
+    printf("%s: radioIndex = %d, AutoChannelEnabled=%d\n",
+        __FUNCTION__, index, enable);
+    if (operationParam->channelWidth == 1)
+        strcpy(ChannelWidth,"20MHz");
+    else if (operationParam->channelWidth == 2)
+        strcpy(ChannelWidth,"40MHz");
+    else if (operationParam->channelWidth == 3)
+        strcpy(ChannelWidth,"80MHz");
+    else if (operationParam->channelWidth == 4)
+        strcpy(ChannelWidth,"160MHz");
+    else if (operationParam->channelWidth == 5)
+        strcpy(ChannelWidth,"8080MHz");
+    if( wifi_setRadioOperatingChannelBandwidth(index,ChannelWidth) != RETURN_OK)
+    {
+        printf("wifi_setRadioOperatingChannelBandwidth failed radio[%d]:%s \n",index,ChannelWidth);
+        return RETURN_ERR;
+    }
+    printf("%s: radioIndex = %d, operationParam channelWidth=%d \n",
+                    __FUNCTION__, index, operationParam->channelWidth);
+    if( wifi_setRadioChannel(index,operationParam->channel) != RETURN_OK)
+    {
+        printf("wifi_setRadioChannel failed radioIndex[%d] \n",index);
+        return RETURN_ERR;
+    }
+    wifi_applySSIDSettings(index);
+#endif
 }
 
 INT wifi_getRadioOperatingParameters(wifi_radio_index_t index, wifi_radio_operationParam_t *operationParam)
@@ -8688,7 +8718,90 @@ INT wifi_getRadioOperatingParameters(wifi_radio_index_t index, wifi_radio_operat
     return RETURN_OK;
 }
 
-INT wifi_getRadioVapInfoMap(wifi_radio_index_t index, wifi_vap_info_map_t *map)
+INT wifi_getApWpsConfiguration(INT apIndex, wifi_wps_t* wpsConfig)
+{
+    int len;
+    ULONG pin;
+    char wps_enabled_methods[64], *token, *next;
+
+    printf("%s: apIndex [%d]\n", __FUNCTION__, apIndex);
+    memset(wpsConfig, 0, sizeof(*wpsConfig));
+    /* Get WPS enable */
+    if(wifi_getApWpsEnable(apIndex, &wpsConfig->enable) != RETURN_OK)
+    {
+        printf("wifi_getApWpsEnable failed for apIndex: %d\n", apIndex);
+        return RETURN_ERR;
+    }
+    /* Get WPS device PIN */
+    if(wifi_getApWpsDevicePIN(apIndex,&pin) != RETURN_OK)
+    {
+        printf("wifi_getApWpsDevicePIN failed for apIndex: %d\n", apIndex);
+        return RETURN_ERR;
+    }
+    sprintf(wpsConfig->pin,"%ld",pin);
+    /* Get enabled WPS config methods */
+    if(wifi_getApWpsConfigMethodsEnabled(apIndex,wps_enabled_methods) != RETURN_OK)
+    {
+        printf("wifi_getApWpsConfigMethodsEnabled failed for apIndex: %d\n", apIndex);
+        return RETURN_ERR;
+    }
+    token = strtok_r(wps_enabled_methods, ",", &next);
+    do {
+        //Currently supporting only two methods
+        if (!strcmp(token, "PushButton"))
+            wpsConfig->methods |= WIFI_ONBOARDINGMETHODS_PUSHBUTTON;
+        else if(!strcmp(token, "PIN"))
+            wpsConfig->methods |= WIFI_ONBOARDINGMETHODS_PIN;
+        else
+            printf("Unknown WPS method found\n");
+        token = strtok_r(next, ",", &next);
+    } while (token);
+
+    return RETURN_OK;
+}
+
+INT wifi_setApWpsConfiguration(INT apIndex, wifi_wps_t* wpsConfig)
+{
+    char wps_methods[256] = {'\0'};
+    int len=0;
+
+    WIFI_ENTRY_EXIT_DEBUG("Inside %s:%d\n",__func__, __LINE__);
+    /* Set WPS enable */
+    if(wifi_setApWpsEnable(apIndex,wpsConfig->enable) != RETURN_OK)
+    {
+        printf("wifi_setApWpsEnable failed for index :%d\n", apIndex);
+        return RETURN_ERR;
+    }
+    /* Set WPS device PIN */
+    if (*wpsConfig->pin) {
+        if(wifi_setApWpsDevicePIN(apIndex,atol(wpsConfig->pin)) != RETURN_OK)
+        {
+            printf("wifi_setApWpsDevicePIN failed for index :%d\n", apIndex);
+            return RETURN_ERR;
+        }
+    }
+    /* Set enabled WPS config methods */
+    if (wpsConfig->methods) {
+
+        //Currently supporting only two methods
+        if(wpsConfig->methods & WIFI_ONBOARDINGMETHODS_PUSHBUTTON)
+            len += snprintf(wps_methods, sizeof(wps_methods), "PushButton,");
+        if(wpsConfig->methods & WIFI_ONBOARDINGMETHODS_PIN)
+            len += snprintf(wps_methods, sizeof(wps_methods), "PIN,");
+        if(wps_methods[len]==',') wps_methods[len] = 0;
+
+        if (wifi_setApWpsConfigMethodsEnabled(apIndex,wps_methods) != RETURN_OK) {
+            printf("wifi_setApWpsConfigMethodsEnabled failed for index: %d\n",
+                apIndex);
+            return RETURN_ERR;
+        }
+    }
+    WIFI_ENTRY_EXIT_DEBUG("Exiting %s:%d\n",__func__, __LINE__);
+
+    return RETURN_OK;
+}
+
+INT wifi_getRadioVapInfoMap(wifi_radio_index_t radioIndex, wifi_vap_info_map_t *map)
 {
     INT ret;
     int i;
@@ -8700,11 +8813,11 @@ INT wifi_getRadioVapInfoMap(wifi_radio_index_t index, wifi_vap_info_map_t *map)
     map->num_vaps = 3; // XXX: this is a hack. For both radio let's support 3 vaps for now
                        //      home, backhaul and onboard.
     WIFI_ENTRY_EXIT_DEBUG("Inside %s:%d\n",__func__, __LINE__);
-    printf("Entering %s index = %d", __func__, (int)index);
+    printf("Entering %s radioIndex = %u", __func__, radioIndex);
 
-    map->vap_array[index].radio_index = index;
-    for (i = 0; i < 3; i++)
+    for (i = 0; i < map->num_vaps; i++)
     {
+        /* vap_index */
         // XXX: hardcode vap indexes for now (0,1 - home, 2,3 - backhaul 6,7 - onboard)
         if (index == 0)
         {
@@ -8723,48 +8836,81 @@ INT wifi_getRadioVapInfoMap(wifi_radio_index_t index, wifi_vap_info_map_t *map)
             printf("Wrong radio index (%d)\n", index);
             return RETURN_ERR;
         }
-
-        strncpy(map->vap_array[i].bridge_name, "brlan0", sizeof(map->vap_array[i].bridge_name) - 1);
-
         map->vap_array[i].vap_index = vap_index;
 
+        /* vap_name */
         memset(buf, 0, sizeof(buf));
-        wifi_getApName(vap_index, buf); // XXX: error handling
+        ret = wifi_getApName(vap_index, buf);
+        if (ret != RETURN_OK)
+        {
+            printf("Failed to get AP Name for index %d\n", vap_index);
+            return RETURN_ERR;
+        }
         strncpy(map->vap_array[i].vap_name, buf, sizeof(map->vap_array[i].vap_name) - 1);
+
+        /* radio_index */
+        map->vap_array[i].radio_index = radioIndex;
+
+        /* bridge_name */
+        strncpy(map->vap_array[i].bridge_name, "brlan0", sizeof(map->vap_array[i].bridge_name) - 1);
+
+        /* bss_info structure */
+        memset(buf, 0, sizeof(buf));
+        ret = wifi_getSSIDNameStatus(vap_index, buf);
+        if (ret != RETURN_OK)
+        {
+            printf("Failed to get SSID name for index %d\n", vap_index);
+            return RETURN_ERR;
+        }
+        strncpy(map->vap_array[i].u.bss_info.ssid, buf, sizeof(map->vap_array[i].u.bss_info.ssid) - 1);
 
         ret = wifi_getSSIDEnable(vap_index, &enabled);
         if (ret != RETURN_OK)
         {
-            printf("failed to get SSIDEnable for index %d\n", i);
+            printf("Failed to get SSIDEnable for index %d\n", vap_index);
             return RETURN_ERR;
         }
         map->vap_array[i].u.bss_info.enabled = enabled;
 
-        memset(buf, 0, sizeof(buf));
-        wifi_getBaseBSSID(vap_index, buf);
-        sscanf(buf, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
-            &map->vap_array[i].u.bss_info.bssid[0],
-            &map->vap_array[i].u.bss_info.bssid[1],
-            &map->vap_array[i].u.bss_info.bssid[2],
-            &map->vap_array[i].u.bss_info.bssid[3],
-            &map->vap_array[i].u.bss_info.bssid[4],
-            &map->vap_array[i].u.bss_info.bssid[5]); // XXX: handle error
-
-        wifi_getApSsidAdvertisementEnable(vap_index, &enabled); // XXX: error handling
+        ret = wifi_getApSsidAdvertisementEnable(vap_index, &enabled);
+        if (ret != RETURN_OK) {
+            printf("Failed to get SSID Advertisement info for index %d\n",
+                vap_index);
+            return RETURN_ERR;
+        }
         map->vap_array[i].u.bss_info.showSsid = enabled;
 
-        wifi_getApMacAddressControlMode(vap_index, &mode); // XXX: handle errors
-        if (mode == 0) map->vap_array[i].u.bss_info.mac_filter_enable = false;
-        else map->vap_array[i].u.bss_info.mac_filter_enable = true;
+        ret = wifi_getApIsolationEnable(vap_index, &enabled);
+        if (ret != RETURN_OK) {
+            printf("Failed to get APIsolation status for index %d\n",vap_index);
+            return RETURN_ERR;
+        }
+        map->vap_array[i].u.bss_info.isolation = enabled;
+        map->vap_array[i].u.bss_info.mgmtPowerControl = 0; //not supported for now
+        map->vap_array[i].u.bss_info.bssMaxSta = 0; //no MAX value set
 
-        if (mode == 1) map->vap_array[i].u.bss_info.mac_filter_mode = wifi_mac_filter_mode_white_list;
-        else if (mode == 2) map->vap_array[i].u.bss_info.mac_filter_mode = wifi_mac_filter_mode_black_list; // XXX: handle wrong mode
+        ret = wifi_getBSSTransitionActivation(vap_index, &enabled);
+        if (ret != RETURN_OK) {
+            printf("Failed to get Transition Activation status for index %d\n",
+                vap_index);
+            return RETURN_ERR;
+        }
+        map->vap_array[i].u.bss_info.bssTransitionActivated = enabled;
 
-        memset(buf, 0, sizeof(buf));
-        wifi_getSSIDNameStatus(vap_index, buf); // XXX: error handling
-        strncpy(map->vap_array[i].u.bss_info.ssid, buf, sizeof(map->vap_array[i].u.bss_info.ssid) - 1);
+        ret = wifi_getNeighborReportActivation(vap_index, &enabled);
+        if (ret != RETURN_OK) {
+            printf("Failed to get Neighbour report status for index %d\n",
+                vap_index);
+            return RETURN_ERR;
+        }
+        map->vap_array[i].u.bss_info.nbrReportActivated = enabled;
 
-        wifi_getApSecurityModeEnabled(vap_index, buf);
+        ret = wifi_getApSecurityModeEnabled(vap_index, buf);
+        if (ret != RETURN_OK) {
+            printf("Failed to get security mode status for index %d\n",
+                vap_index);
+            return RETURN_ERR;
+        }
 
         if (!(secur_item = wifi_get_item_by_str(ARRAY_AND_SIZE(map_security), buf)))
         {
@@ -8774,17 +8920,44 @@ INT wifi_getRadioVapInfoMap(wifi_radio_index_t index, wifi_vap_info_map_t *map)
         map->vap_array[i].u.bss_info.security.mode = secur_item->key;
 
         memset(buf, 0, sizeof(buf));
-        wifi_getApSecurityKeyPassphrase(vap_index, buf); // XXX: error handling
+        ret = wifi_getApSecurityKeyPassphrase(vap_index, buf);
         strncpy(map->vap_array[i].u.bss_info.security.u.key.key, buf, sizeof(map->vap_array[i].u.bss_info.security.u.key.key) - 1);
 
-        wifi_getNeighborReportActivation(vap_index, &enabled); // XXX: error handling
-        map->vap_array[i].u.bss_info.nbrReportActivated = enabled;
+        ret = wifi_getApMacAddressControlMode(vap_index, &mode);
+        if (ret != RETURN_OK) {
+            printf("Failed to get MAC access control status for index %d\n",
+                vap_index);
+            return RETURN_ERR;
+        }
+        if (mode == 0)
+            map->vap_array[i].u.bss_info.mac_filter_enable = false;
+        else
+        {
+            map->vap_array[i].u.bss_info.mac_filter_enable = true;
+            if (mode == 1) map->vap_array[i].u.bss_info.mac_filter_mode = wifi_mac_filter_mode_white_list;
+            else if (mode == 2) map->vap_array[i].u.bss_info.mac_filter_mode = wifi_mac_filter_mode_black_list; // XXX: handle wrong mode
+        }
+        ret = wifi_getApWpsConfiguration(vap_index, &(map->vap_array[i].u.bss_info.wps));
+        if (ret != RETURN_OK) {
+            printf("Failed to get WPS config for index %d\n", vap_index);
+            return RETURN_ERR;
+        }
+        //TODO: set beaconRate
 
-        wifi_getBSSTransitionActivation(vap_index, &enabled); // XXX: error handling
-        map->vap_array[i].u.bss_info.bssTransitionActivated = enabled;
+        memset(buf, 0, sizeof(buf));
+        ret = wifi_getBaseBSSID(vap_index, buf);
+        if (ret != RETURN_OK) {
+            printf("Failed to get BSSID for index %d\n", vap_index);
+            return RETURN_ERR;
+        }
+        sscanf(buf, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
+            &map->vap_array[i].u.bss_info.bssid[0],
+            &map->vap_array[i].u.bss_info.bssid[1],
+            &map->vap_array[i].u.bss_info.bssid[2],
+            &map->vap_array[i].u.bss_info.bssid[3],
+            &map->vap_array[i].u.bss_info.bssid[4],
+            &map->vap_array[i].u.bss_info.bssid[5]);
 
-        wifi_getApIsolationEnable(vap_index, &enabled);
-        map->vap_array[i].u.bss_info.isolation = enabled;
     }
     WIFI_ENTRY_EXIT_DEBUG("Exiting %s:%d\n",__func__, __LINE__);
     return RETURN_OK;
@@ -8839,28 +9012,26 @@ INT wifi_createVAP(wifi_radio_index_t index, wifi_vap_info_map_t *map)
     return RETURN_OK;
 }
 
-int parse_channel_list_int_arr(int radioIndex, char *pchannels, wifi_channels_list_t* chlistptr)
+int parse_channel_list_int_arr(char *pchannels, wifi_channels_list_t* chlistptr)
 {
-
-    char *token;
+    char *token, *next;
     const char s[2] = ",";
     int count =0;
 
     /* get the first token */
-    token = strtok(pchannels, s);
+    token = strtok_r(pchannels, s, &next);
 
     /* walk through other tokens */
-    while( token != NULL ) {
-        chlistptr->channels_list[count] = atoi(token);
-        count++;
-        token = strtok(NULL, s);
+    while( token != NULL && count < MAX_CHANNELS) {
+        chlistptr->channels_list[count++] = atoi(token);
+        token = strtok_r(next, s, &next);
     }
+
     return count;
 }
 
 static int getRadioCapabilities(int radioIndex, wifi_radio_capabilities_t *rcap)
 {
-
     INT status;
     wifi_channels_list_t *chlistp;
     unsigned int *uarray;
@@ -8872,12 +9043,17 @@ static int getRadioCapabilities(int radioIndex, wifi_radio_capabilities_t *rcap)
         return RETURN_ERR;
     }
 
-    rcap->numSupportedFreqBand = 1;
-    if (1 == radioIndex)
-      rcap->band[0] = WIFI_FREQUENCY_5_BAND;
-    else
-      rcap->band[0] = WIFI_FREQUENCY_2_4_BAND;
+    /* ifaceName */
+    snprintf(rcap->ifaceName, sizeof(rcap->ifaceName), "wlan%d", radioIndex);
 
+    /* numSupportedFreqBand */
+    rcap->numSupportedFreqBand = 1;
+
+    /* band */
+    if (radioIndex == 1)
+        rcap->band[0] = WIFI_FREQUENCY_5_BAND;
+    else
+        rcap->band[0] = WIFI_FREQUENCY_2_4_BAND;
 
     chlistp = &(rcap->channel_list[0]);
     memset(pchannels, 0, sizeof(pchannels));
@@ -8885,49 +9061,11 @@ static int getRadioCapabilities(int radioIndex, wifi_radio_capabilities_t *rcap)
     /* possible number of radio channels */
     status = wifi_getRadioPossibleChannels(radioIndex, pchannels);
     {
-         printf("[wifi_hal dbg] : func[%s] line[%d] error_ret[%d] radio_index[%d] output[%s]\n", __FUNCTION__, __LINE__, status, radioIndex, pchannels);
+        printf("[wifi_hal dbg] : func[%s] line[%d] error_ret[%d] radio_index[%d] output[%s]\n", __FUNCTION__, __LINE__, status, radioIndex, pchannels);
+        return RETURN_ERR;
     }
     /* Number of channels and list*/
-    chlistp->num_channels = parse_channel_list_int_arr(radioIndex, pchannels, chlistp);
-
-    /* autoChannelSupported */
-    /* always ON with wifi_getRadioAutoChannelSupported */
-    rcap->autoChannelSupported = TRUE;
-
-    /* DCSSupported */
-    /* always ON with wifi_getRadioDCSSupported */
-    rcap->DCSSupported = TRUE;
-
-    /* zeroDFSSupported - TBD */
-    rcap->zeroDFSSupported = FALSE;
-
-    /* Supported Country List*/
-    memset(output_string, 0, sizeof(output_string));
-    status = wifi_getRadioCountryCode(radioIndex, output_string);
-    if( status != 0 ) {
-        printf("[wifi_hal dbg] : func[%s] line[%d] error_ret[%d] radio_index[%d] output[%s]\n", __FUNCTION__, __LINE__, status, radioIndex, output_string);
-        return RETURN_ERR;
-    } else {
-        printf("[wifi_hal dbg] : func[%s] line[%d], output [%s]\n", __FUNCTION__, __LINE__, output_string);
-    }
-    output_string[strlen(output_string) - 1] = '\0';
-    if(!strcmp(output_string,"US")){
-        rcap->countrySupported[0] = wifi_countrycode_US;
-        rcap->countrySupported[1] = wifi_countrycode_CA;
-    } else if (!strcmp(output_string,"CA")) {
-        rcap->countrySupported[0] = wifi_countrycode_CA;
-        rcap->countrySupported[1] = wifi_countrycode_US;
-    } else {
-        printf("[wifi_hal dbg] : func[%s] line[%d] radio_index[%d] Invalid Country [%s]\n", __FUNCTION__, __LINE__, radioIndex, output_string);
-    }
-
-    rcap->numcountrySupported = 2;
-
-    /* csi */
-    rcap->csi.maxDevices = 8;
-    rcap->csi.soudingFrameSupported = TRUE;
-
-    snprintf(rcap->ifaceName, 64, "wlan%d", radioIndex);
+    chlistp->num_channels = parse_channel_list_int_arr(pchannels, chlistp);
 
     /* channelWidth - all supported bandwidths */
     int i=0;
@@ -8943,7 +9081,6 @@ static int getRadioCapabilities(int radioIndex, wifi_radio_capabilities_t *rcap)
                                 WIFI_CHANNELBANDWIDTH_80MHZ | WIFI_CHANNELBANDWIDTH_160MHZ);
     }
 
-
     /* mode - all supported variants */
     // rcap->mode[i] = WIFI_80211_VARIANT_H;
     if (rcap->band[i] & WIFI_FREQUENCY_2_4_BAND ) {
@@ -8952,6 +9089,8 @@ static int getRadioCapabilities(int radioIndex, wifi_radio_capabilities_t *rcap)
     else if (rcap->band[i] & WIFI_FREQUENCY_5_BAND ) {
         rcap->mode[i] = ( WIFI_80211_VARIANT_AC );
     }
+
+    /* MaxBitRate */
     rcap->maxBitRate[i] = ( rcap->band[i] & WIFI_FREQUENCY_2_4_BAND ) ? 300 :
         ((rcap->band[i] & WIFI_FREQUENCY_5_BAND) ? 1734 : 0);
 
@@ -8967,7 +9106,6 @@ static int getRadioCapabilities(int radioIndex, wifi_radio_capabilities_t *rcap)
                                     WIFI_BITRATE_36MBPS | WIFI_BITRATE_48MBPS | WIFI_BITRATE_54MBPS);
     }
 
-
     rcap->transmitPowerSupported_list[i].numberOfElements = 5;
     uarray = rcap->transmitPowerSupported_list[i].transmitPowerSupported;
     uarray[0]=12;
@@ -8975,8 +9113,31 @@ static int getRadioCapabilities(int radioIndex, wifi_radio_capabilities_t *rcap)
     uarray[2]=50;
     uarray[3]=75;
     uarray[4]=100;
+
+    /* autoChannelSupported */
+    /* always ON with wifi_getRadioAutoChannelSupported */
+    rcap->autoChannelSupported = TRUE;
+
+    /* DCSSupported */
+    /* always ON with wifi_getRadioDCSSupported */
+    rcap->DCSSupported = TRUE;
+
+    /* zeroDFSSupported - TBD */
+    rcap->zeroDFSSupported = FALSE;
+
+    /* csi */
+    rcap->csi.maxDevices = 8;
+    rcap->csi.soudingFrameSupported = TRUE;
+
     rcap->cipherSupported = 0;
     rcap->cipherSupported |= WIFI_CIPHER_CAPA_ENC_TKIP | WIFI_CIPHER_CAPA_ENC_CCMP;
+
+    rcap->numcountrySupported = 2;
+
+    /* Supported Country List*/
+    rcap->countrySupported[0] = wifi_countrycode_US;
+    rcap->countrySupported[1] = wifi_countrycode_CA;
+
     rcap->maxNumberVAPs = MAX_NUM_VAP_PER_RADIO;
 
     return RETURN_OK;
@@ -8986,8 +9147,8 @@ INT wifi_getHalCapability(wifi_hal_capability_t *cap)
 {
     int i = 0, j = 0;
     INT status;
-    WIFI_ENTRY_EXIT_DEBUG("Inside %s:%d\n",__func__, __LINE__);
 
+    WIFI_ENTRY_EXIT_DEBUG("Inside %s:%d\n",__func__, __LINE__);
     memset(cap, 0, sizeof(wifi_hal_capability_t));
 
     /* version */
@@ -8999,7 +9160,6 @@ INT wifi_getHalCapability(wifi_hal_capability_t *cap)
 
     for(i=0; i < cap->wifi_prop.numRadios; i++)
     {
-
         status = getRadioCapabilities(i, &(cap->wifi_prop.radiocap[i]));
         if (status != 0) {
             printf("%s: getRadioCapabilities idx = %d\n", __FUNCTION__, i);
@@ -9007,6 +9167,7 @@ INT wifi_getHalCapability(wifi_hal_capability_t *cap)
         }
     }
     WIFI_ENTRY_EXIT_DEBUG("Exiting %s:%d\n",__func__, __LINE__);
+
     return RETURN_OK;
 }
 
