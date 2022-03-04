@@ -4316,6 +4316,8 @@ INT wifi_setApEnable(INT apIndex, BOOL enable)
         align_hostapd_config(apIndex);
         sprintf(config_file,"%s%d.conf",CONFIG_PREFIX,apIndex);
         //Hostapd will bring up this interface
+        sprintf(cmd, "hostapd_cli -i global raw REMOVE %s%d", AP_PREFIX, apIndex);
+        _syscmd(cmd, buf, sizeof(buf));
         sprintf(cmd, "hostapd_cli -i global raw ADD bss_config=phy%d:%s", apIndex, config_file);
         _syscmd(cmd, buf, sizeof(buf));
     }
@@ -8802,7 +8804,6 @@ INT wifi_createVAP(wifi_radio_index_t index, wifi_vap_info_map_t *map)
         vap_info = &map->vap_array[i];
         printf("Create VAP for ssid_index=%d (vap_num=%d)\n", vap_info->vap_index, i);
 
-        wifi_setSSIDEnable(vap_info->vap_index, vap_info->u.bss_info.enabled); // XXX: handle errors
         if (vap_info->u.bss_info.mac_filter_enable == false) acl_mode = 0;
         else
         {
@@ -8830,6 +8831,8 @@ INT wifi_createVAP(wifi_radio_index_t index, wifi_vap_info_map_t *map)
         wifi_setBSSTransitionActivation(vap_info->vap_index, vap_info->u.bss_info.bssTransitionActivated); // XXX: handle errors
 
         printf("Calling wifi_applySSIDSettings for index: %d\n", vap_info->vap_index);
+
+        wifi_setSSIDEnable(vap_info->vap_index, vap_info->u.bss_info.enabled); // XXX: handle errors
         wifi_applySSIDSettings(vap_info->vap_index); // XXX: handle errors, don't call if no changes.
     }
     WIFI_ENTRY_EXIT_DEBUG("Exiting %s:%d\n",__func__, __LINE__);
