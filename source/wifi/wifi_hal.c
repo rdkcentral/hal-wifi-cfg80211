@@ -22,6 +22,11 @@
 * Licensed under the BSD-3 license
 */
 
+/*
+* This file includes material that is Copyright (c) 2020, Plume Design Inc.
+* Licensed under the BSD-3 license
+*/
+
 /* Code in rxStatsInfo_callback and other callbacks is credited as follows:
 Copyright (c) 2007, 2008    Johannes Berg
 Copyright (c) 2007        Andy Lutomirski
@@ -561,6 +566,15 @@ static int writeBandWidth(int radioIndex,char *bw_value)
 {
     char buf[MAX_BUF_SIZE];
     char cmd[MAX_CMD_SIZE];
+
+    snprintf(cmd, sizeof(cmd), "grep SET_BW%d %s", radioIndex, BW_FNAME);
+    if(_syscmd(cmd, buf, sizeof(buf)))
+    {
+        snprintf(cmd, sizeof(cmd), "echo SET_BW%d=%s >> %s", radioIndex, bw_value, BW_FNAME);
+        _syscmd(cmd, buf, sizeof(buf));
+        return RETURN_OK;
+    }
+
     sprintf(cmd,"sed -i 's/^SET_BW%d=.*$/SET_BW%d=%s/' %s",radioIndex,radioIndex,bw_value,BW_FNAME);
     _syscmd(cmd,buf,sizeof(buf));
     return RETURN_OK;
@@ -579,6 +593,10 @@ static int readBandWidth(int radioIndex,char *bw_value)
     else if(NULL!=strstr(buf,"40MHz"))
     {
         strcpy(bw_value,"40MHz");
+    }
+    else if(NULL!=strstr(buf,"80MHz"))
+    {
+        strcpy(bw_value,"80MHz");
     }
     else
     {
@@ -1022,7 +1040,7 @@ INT wifi_setRadioEnable(INT radioIndex, BOOL enable)
             if(*buf == '1')
             {
                 snprintf(cmd, sizeof(cmd), "hostapd_cli -i global raw ADD bss_config=phy%d:/nvram/hostapd%d.conf",
-                              apIndex, apIndex);
+                              radioIndex, apIndex);
                 _syscmd(cmd, buf, sizeof(buf));
                 if(strncmp(buf, "OK", 2))
                     fprintf(stderr, "Could not detach %s%d from hostapd daemon", AP_PREFIX, apIndex);
@@ -1668,6 +1686,26 @@ INT wifi_setRadioChannel(INT radioIndex, ULONG channel)	//RDKB	//AP only
     return RETURN_OK;
     //Set to wifi config only. Wait for wifi reset or wifi_pushRadioChannel to apply.
  }
+
+INT wifi_setRadioCenterChannel(INT radioIndex, ULONG channel)
+{
+    struct params list;
+    char str_idx[16];
+    char config_file[MAX_BUF_SIZE];
+
+    list.name = "vht_oper_centr_freq_seg0_idx";
+    snprintf(str_idx, sizeof(str_idx), "%d", channel);
+    list.value = str_idx;
+
+    for(int i=0; i<=MAX_APS/NUMBER_OF_RADIOS; i++)
+    {
+        snprintf(config_file, sizeof(config_file), "%s%d.conf", CONFIG_PREFIX, radioIndex+(2*i));
+        wifi_hostapdWrite(config_file, &list, 1);
+    }
+
+    return RETURN_OK;
+}
+
 //Enables or disables a driver level variable to indicate if auto channel selection is enabled on this radio
 //This "auto channel" means the auto channel selection when radio is up. (which is different from the dynamic channel/frequency selection (DFC/DCS))
 INT wifi_setRadioAutoChannelEnable(INT radioIndex, BOOL enable) //RDKB
@@ -1917,43 +1955,56 @@ INT wifi_getRadioOperatingChannelBandwidth(INT radioIndex, CHAR *output_string) 
 INT wifi_setRadioOperatingChannelBandwidth(INT radioIndex, CHAR *output_string) //Tr181	//AP only
 {
     WIFI_ENTRY_EXIT_DEBUG("Inside %s:%d\n",__func__, __LINE__);
-    struct params params={'\0'};
-    params.name = "vht_oper_chwidth";
-    char config_file[MAX_BUF_SIZE] = {0};
+    char config_file[MAX_BUF_SIZE];
+    struct params params[4];
+    struct params *pptr = params;
 
     if(NULL == output_string)
         return RETURN_ERR;
 
+    pptr->name = "vht_oper_chwidth";
     if(strcmp(output_string,"20MHz") == 0)  // This piece of code only support for wifi hal api's validation
-        params.value="0";
+        pptr->value="0";
     else if(strcmp(output_string,"40MHz") == 0)
-        params.value="0";
+        pptr->value="0";
     else if(strcmp(output_string,"80MHz") == 0)
-        params.value="1";
+        pptr->value="1";
     else if(strcmp(output_string,"160MHz") == 0)
-        params.value="2";
+        pptr->value="2";
     else if(strcmp(output_string,"80+80") == 0)
-        params.value="3";
+        pptr->value="3";
     else
     {
         printf("Invalid Bandwidth \n");
         return RETURN_ERR;
     }
 
-    sprintf(config_file,"%s%d.conf",CONFIG_PREFIX,radioIndex);
-    wifi_hostapdWrite(config_file,&params,1);
+    pptr++; // added vht_oper_chwidth
 
     if(radioIndex == 1)
     {
-        params.name= "ieee80211n";
+        pptr->name= "ieee80211n";
         if(strcmp(output_string,"20MHz") == 0)
-            output_string="0";
+            pptr->value="0";
         else if(strcmp(output_string,"40MHz") == 0)
-            output_string="1";
+            pptr->value="1";
+        else if(strcmp(output_string,"80MHz") == 0)
+            pptr->value="1";
 
-        params.value = output_string;
-        sprintf(config_file,"%s%d.conf",CONFIG_PREFIX,radioIndex);
-        wifi_hostapdWrite(config_file,&params,1);
+        pptr++; // added ieee80211n
+
+	if(strcmp(output_string,"80MHz") == 0)
+	{
+	    pptr->name="ieee80211ac";
+	    pptr->value="1";
+	    pptr++; // added ieee80211ac
+	}
+    }
+
+    for(int i=0; i<=MAX_APS/NUMBER_OF_RADIOS; i++)
+    {
+       snprintf(config_file, sizeof(config_file), "%s%d.conf", CONFIG_PREFIX, radioIndex+(2*i));
+       wifi_hostapdWrite(config_file, params, (pptr - params));
     }
 
     WIFI_ENTRY_EXIT_DEBUG("Exiting %s:%d\n",__func__, __LINE__);
@@ -2014,8 +2065,12 @@ INT wifi_setRadioExtChannel(INT radioIndex, CHAR *string) //Tr181	//AP only
 
     if(radioIndex == 0)
     {
-        if((NULL!= strstr(string,"Above")) || (NULL!= strstr(string,"Below")))
-        strcpy(ext_channel,"[HT40][SHORT-GI-20][DSSS_CCK-40]");
+	if(NULL!= strstr(string,"Above"))
+            strcpy(ext_channel,"[HT40][SHORT-GI-20][HT40+]");
+        else if(NULL!= strstr(string,"Below"))
+            strcpy(ext_channel,"[HT40][SHORT-GI-20][HT40-]");
+	else
+	    strcpy(ext_channel,"[SHORT-GI-20]");
     }
     else if(radioIndex  == 1)
     {
@@ -2023,11 +2078,16 @@ INT wifi_setRadioExtChannel(INT radioIndex, CHAR *string) //Tr181	//AP only
             strcpy(ext_channel,"[HT40][SHORT-GI-20][HT40+]");
         else if(NULL!= strstr(string,"Below"))
             strcpy(ext_channel,"[HT40][SHORT-GI-20][HT40-]");
+	else
+	    strcpy(ext_channel,"[SHORT-GI-20]");
     }
 
     params.value = ext_channel;
-    sprintf(config_file,"%s%d.conf",CONFIG_PREFIX,radioIndex);
-    wifi_hostapdWrite(config_file,&params,1);
+    for(int i=0; i<=MAX_APS/NUMBER_OF_RADIOS; i++)
+    {
+        sprintf(config_file,"%s%d.conf",CONFIG_PREFIX,radioIndex+(2*i));
+        wifi_hostapdWrite(config_file, &params, 1);
+    }
 
     //Set to wifi config only. Wait for wifi reset or wifi_pushRadioChannel to apply.
     WIFI_ENTRY_EXIT_DEBUG("Exiting %s:%d\n",__func__, __LINE__);
@@ -4313,12 +4373,13 @@ INT wifi_setApEnable(INT apIndex, BOOL enable)
         return RETURN_OK;
 
     if (enable == TRUE) {
+	int radioIndex = apIndex % NUMBER_OF_RADIOS;
         align_hostapd_config(apIndex);
         sprintf(config_file,"%s%d.conf",CONFIG_PREFIX,apIndex);
         //Hostapd will bring up this interface
         sprintf(cmd, "hostapd_cli -i global raw REMOVE %s%d", AP_PREFIX, apIndex);
         _syscmd(cmd, buf, sizeof(buf));
-        sprintf(cmd, "hostapd_cli -i global raw ADD bss_config=phy%d:%s", apIndex, config_file);
+        sprintf(cmd, "hostapd_cli -i global raw ADD bss_config=phy%d:%s", radioIndex, config_file);
         _syscmd(cmd, buf, sizeof(buf));
     }
     else {
@@ -6314,44 +6375,258 @@ INT wifi_setRadioOperationalDataTransmitRates(INT wlanIndex,CHAR *output)
     return RETURN_OK;
 }
 
-static INT chan_to_freq(int radioIndex, UINT channel, int *freq)
-{
-    char cmd[MAX_CMD_SIZE] = {0};
-    char buf[MAX_BUF_SIZE] = {0};
-    int ret = 0;
-    //TODO: provide better implementation
-    sprintf(cmd, "iwlist %s%d channel |grep 'Channel %02d ' |awk '{print $4}'  | tr -d '.'", RADIO_PREFIX, radioIndex, channel);
-    ret = _syscmd(cmd, buf, sizeof(buf));
-    if ((ret != 0) && (strlen(buf) == 0))
-            return RETURN_ERR;
-    sscanf(buf, "%d", freq);
-    if(*freq < 1000)
-        *freq= *freq*10;
 
-    return RETURN_OK;
+static char *sncopy(char *dst, int dst_sz, const char *src)
+{
+    if (src && dst && dst_sz > 0) {
+        strncpy(dst, src, dst_sz);
+        dst[dst_sz - 1] = '\0';
+    }
+    return dst;
+}
+
+static int util_get_sec_chan_offset(int channel, const char* ht_mode)
+{
+    if (0 == strcmp(ht_mode, "HT40") ||
+        0 == strcmp(ht_mode, "HT80") ||
+        0 == strcmp(ht_mode, "HT160")) {
+        switch (channel) {
+            case 1 ... 7:
+            case 36:
+            case 44:
+            case 52:
+            case 60:
+            case 100:
+            case 108:
+            case 116:
+            case 124:
+            case 132:
+            case 140:
+            case 149:
+            case 157:
+                return 1;
+            case 8 ... 13:
+            case 40:
+            case 48:
+            case 56:
+            case 64:
+            case 104:
+            case 112:
+            case 120:
+            case 128:
+            case 136:
+            case 144:
+            case 153:
+            case 161:
+                return -1;
+            default:
+                return -EINVAL;
+        }
+    }
+
+    return -EINVAL;
+}
+
+static void util_hw_mode_to_bw_mode(const char* hw_mode, char *bw_mode, int bw_mode_len)
+{
+    if (NULL == hw_mode) return;
+
+    if (0 == strcmp(hw_mode, "ac"))
+        sncopy(bw_mode, bw_mode_len, "ht vht");
+
+    if (0 == strcmp(hw_mode, "n"))
+        sncopy(bw_mode, bw_mode_len, "ht");
+
+    return;
+}
+
+static int util_chan_to_freq(int chan)
+{
+    if (chan == 14)
+        return 2484;
+    else if (chan < 14)
+        return 2407 + chan * 5;
+    else if (chan >= 182 && chan <= 196)
+        return 4000 + chan * 5;
+    else
+        return 5000 + chan * 5;
+    return 0;
+}
+
+const int *util_unii_5g_chan2list(int chan, int width)
+{
+    static const int lists[] = {
+        // <width>, <chan1>, <chan2>..., 0,
+        20, 36, 0,
+        20, 40, 0,
+        20, 44, 0,
+        20, 48, 0,
+        20, 52, 0,
+        20, 56, 0,
+        20, 60, 0,
+        20, 64, 0,
+        20, 100, 0,
+        20, 104, 0,
+        20, 108, 0,
+        20, 112, 0,
+        20, 116, 0,
+        20, 120, 0,
+        20, 124, 0,
+        20, 128, 0,
+        20, 132, 0,
+        20, 136, 0,
+        20, 140, 0,
+        20, 144, 0,
+        20, 149, 0,
+        20, 153, 0,
+        20, 157, 0,
+        20, 161, 0,
+        20, 165, 0,
+        40, 36, 40, 0,
+        40, 44, 48, 0,
+        40, 52, 56, 0,
+        40, 60, 64, 0,
+        40, 100, 104, 0,
+        40, 108, 112, 0,
+        40, 116, 120, 0,
+        40, 124, 128, 0,
+        40, 132, 136, 0,
+        40, 140, 144, 0,
+        40, 149, 153, 0,
+        40, 157, 161, 0,
+        80, 36, 40, 44, 48, 0,
+        80, 52, 56, 60, 64, 0,
+        80, 100, 104, 108, 112, 0,
+        80, 116, 120, 124, 128, 0,
+        80, 132, 136, 140, 144, 0,
+        80, 149, 153, 157, 161, 0,
+        160, 36, 40, 44, 48, 52, 56, 60, 64, 0,
+        160, 100, 104, 108, 112, 116, 120, 124, 128, 0,
+        -1 // final delimiter
+    };
+    const int *start;
+    const int *p;
+
+    for (p = lists; *p != -1; p++) {
+        if (*p == width) {
+            for (start = ++p; *p != 0; p++) {
+                if (*p == chan)
+                    return start;
+            }
+        }
+        // move to the end of channel list of given width
+        while (*p != 0) {
+            p++;
+        }
+    }
+
+    return NULL;
+}
+
+static int util_unii_5g_centerfreq(const char *ht_mode, int channel)
+{
+    if (NULL == ht_mode)
+        return 0;
+
+    const int width = atoi(strlen(ht_mode) > 2 ? ht_mode + 2 : "20");
+    const int *chans = util_unii_5g_chan2list(channel, width);
+    int sum = 0;
+    int cnt = 0;
+
+    if (NULL == chans)
+        return 0;
+
+    while (*chans) {
+        sum += *chans;
+        cnt++;
+        chans++;
+    }
+    return sum / cnt;
+}
+
+static int util_radio_get_hw_mode(int radioIndex, char *hw_mode, int hw_mode_size)
+{
+    BOOL onlyG, onlyN, onlyA;
+    CHAR tmp[64];
+    int ret = wifi_getRadioStandard(radioIndex, tmp, &onlyG, &onlyN, &onlyA);
+    if (ret == RETURN_OK) {
+        sncopy(hw_mode, hw_mode_size, tmp);
+    }
+    return ret;
 }
 
 INT wifi_pushRadioChannel2(INT radioIndex, UINT channel, UINT channel_width_MHz, UINT csa_beacon_count)
 {
-    //Sample command: "hostapd_cli -i wifi0 chan_switch 30 2.437"
+    // Sample commands:
+    //   hostapd_cli -i wifi1 chan_switch 30 5200 sec_channel_offset=-1 center_freq1=5190 bandwidth=40 ht vht
+    //   hostapd_cli -i wifi0 chan_switch 30 2437
     char cmd[MAX_CMD_SIZE] = {0};
     char buf[MAX_BUF_SIZE] = {0};
-    int freq =0, ret = 0;
-    //char vht[4] = (radioIndex == 0)? "ht":"vht";
+    int freq = 0, ret = 0;
+    char center_freq1_str[32] = ""; // center_freq1=%d
+    char opt_chan_info_str[32] = ""; // bandwidth=%d ht vht
+    char sec_chan_offset_str[32] = ""; // sec_channel_offset=%d
+    char hw_mode[16] = ""; // n|ac
+    char bw_mode[16] = ""; // ht|ht vht
+    char ht_mode[16] = ""; // HT20|HT40|HT80|HT160
+    int sec_chan_offset;
+    int width;
 
     WIFI_ENTRY_EXIT_DEBUG("Inside %s:%d\n",__func__, __LINE__);
-    if(chan_to_freq(radioIndex, channel, &freq) == RETURN_ERR)
-        return RETURN_ERR;
 
-    //Send chan_switch to all VAPs
-    for(int i=0; i < MAX_APS/NUMBER_OF_RADIOS; i++) {
-        int apIndex = radioIndex + i*NUMBER_OF_RADIOS;
-        //snprintf(cmd, sizeof(cmd), "hostapd_cli  -i %s%d chan_switch %d %d sec_channel_offset=1 center_freq1=%f bandwidth=%d %s", RADIO_PREFIX, radioIndex, csa_beacon_count, freq, channel_width_MHz, vht);
-        snprintf(cmd, sizeof(cmd), "hostapd_cli  -i %s%d chan_switch %d %d ", AP_PREFIX, apIndex, csa_beacon_count, freq);
+    freq = util_chan_to_freq(channel);
+
+    // Get radio mode HT20|HT40|HT80 etc.
+    width = channel_width_MHz > 20 ? channel_width_MHz : 20;
+    snprintf(ht_mode, sizeof(ht_mode), "HT%d", width);
+    // Find channel offset +1/-1 for wide modes (HT40|HT80|HT160)
+    sec_chan_offset = util_get_sec_chan_offset(channel, ht_mode);
+    if (sec_chan_offset != -EINVAL)
+        snprintf(sec_chan_offset_str, sizeof(sec_chan_offset_str), "sec_channel_offset=%d", sec_chan_offset);
+
+
+    // Provide bandwith if specified
+    if (channel_width_MHz > 20) {
+        // Select bandwidth mode from hardware n --> ht | ac --> ht vht
+        util_radio_get_hw_mode(radioIndex, hw_mode, sizeof(hw_mode));
+        util_hw_mode_to_bw_mode(hw_mode, bw_mode, sizeof(bw_mode));
+
+        snprintf(opt_chan_info_str, sizeof(opt_chan_info_str), "bandwidth=%d %s", width, bw_mode);
+    }
+
+    int center_chan = 0;
+    if (channel_width_MHz > 20) {
+        center_chan = util_unii_5g_centerfreq(ht_mode, channel);
+        if (center_chan > 0) {
+            int center_freq1 = util_chan_to_freq(center_chan);
+            if (center_freq1)
+                snprintf(center_freq1_str, sizeof(center_freq1_str), "center_freq1=%d", center_freq1);
+        }
+    }
+
+    {
+	// Only the first AP, other are hanging on the same radio
+	int apIndex = radioIndex;
+        snprintf(cmd, sizeof(cmd), "hostapd_cli  -i %s%d chan_switch %d %d %s %s %s",
+            AP_PREFIX, apIndex, csa_beacon_count, freq,
+            sec_chan_offset_str, center_freq1_str, opt_chan_info_str);
+        wifi_dbg_printf("execute: '%s'\n", cmd);
         ret = _syscmd(cmd, buf, sizeof(buf));
     }
 
-    wifi_setRadioChannel(radioIndex,channel);
+    wifi_setRadioChannel(radioIndex, channel);
+
+    char *ext_str = "None";
+    if (sec_chan_offset == 1) ext_str = "Above";
+    else if (sec_chan_offset == -1) ext_str = "Below";
+    wifi_setRadioExtChannel(radioIndex, ext_str);
+
+    wifi_setRadioCenterChannel(radioIndex, center_chan);
+
+    char mhz_str[16];
+    snprintf(mhz_str, sizeof(mhz_str), "%dMHz", width);
+    wifi_setRadioOperatingChannelBandwidth(radioIndex, mhz_str);
+
     WIFI_ENTRY_EXIT_DEBUG("Exiting %s:%d\n",__func__, __LINE__);
 
     return RETURN_OK;
@@ -8600,6 +8875,19 @@ int main(int argc,char **argv)
         wifi_getRadioOperatingChannelBandwidth(index,buf);
         printf("Current bandwidth is %s \n",buf);
         return 0;
+    }
+    if(strstr(argv[1],"pushRadioChannel2")!=NULL)
+    {
+        if (argc <= 5)
+        {
+            printf("Insufficient arguments\n");
+            exit(-1);
+        }
+        UINT channel = atoi(argv[3]);
+        UINT width = atoi(argv[4]);
+        UINT beacon = atoi(argv[5]);
+        INT ret = wifi_pushRadioChannel2(index,channel,width,beacon);
+        printf("Result = %d", ret);
     }
 
     WIFI_ENTRY_EXIT_DEBUG("Exiting %s:%d\n",__func__, __LINE__);
