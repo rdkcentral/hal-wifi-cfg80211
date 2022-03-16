@@ -18,3 +18,6 @@ Licensed under the ISC license
 
 Material from the TR181 data model is Copyright (c) 2010-2017, Broadband Forum
 Licensed under the BSD-3 license
+
+The file wifi_hal.c includes material that is Copyright (c) 2020, Plume Design Inc.
+Licensed under the BSD-3 license
