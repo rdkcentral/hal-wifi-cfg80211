@@ -462,9 +462,11 @@ static int wifi_hostapdProcessUpdate(int apIndex, struct params *list, int item_
         }
         if(!fgets(output, sizeof(output), fp) || strncmp(output, "OK", 2))
         {
+	    pclose(fp);
             perror("fgets failed");
             return -1;
         }
+	pclose(fp);
     }
     return 0;
 }
@@ -966,6 +968,7 @@ INT wifi_getSSIDNumberOfEntries(ULONG *output) //Tr181
 INT wifi_getRadioEnable(INT radioIndex, BOOL *output_bool)      //RDKB
 {
     char interface_path[MAX_CMD_SIZE] = {0};
+    FILE *fp = NULL;
 
     if (NULL == output_bool)
         return RETURN_ERR;
@@ -975,9 +978,12 @@ INT wifi_getRadioEnable(INT radioIndex, BOOL *output_bool)      //RDKB
         return RETURN_ERR;
 
     snprintf(interface_path, sizeof(interface_path), "/sys/class/net/%s%d/address", RADIO_PREFIX, radioIndex);
-    if(fopen(interface_path, "r"))
+    fp = fopen(interface_path, "r");
+    if(fp)
+    {
         *output_bool = TRUE;
-
+        fclose(fp);
+    }
     //TODO: check if hostapd with config is running
 
     return RETURN_OK;
@@ -988,6 +994,7 @@ INT wifi_setRadioEnable(INT radioIndex, BOOL enable)
     char cmd[MAX_CMD_SIZE] = {0};
     char buf[MAX_CMD_SIZE] = {0};
     int apIndex, ret;
+    FILE *fp = NULL;
 
     WIFI_ENTRY_EXIT_DEBUG("Inside %s:%d\n",__func__, __LINE__);
     if(enable==FALSE)
@@ -1018,13 +1025,16 @@ INT wifi_setRadioEnable(INT radioIndex, BOOL enable)
         if(radioIndex == 1)//If "wlan0" interface created for 5GHz radio, then need to rename to wlan1
         {
             snprintf(cmd, sizeof(cmd), "/sys/class/net/%s%d/address", RADIO_PREFIX, radioIndex);
-            if(!fopen(cmd, "r"))
+	    fp = fopen(cmd, "r");
+            if(!fp)
             {
                 snprintf(cmd, sizeof(cmd), "ip link set %s0 down", RADIO_PREFIX);
                 _syscmd(cmd, buf, sizeof(buf));
                 snprintf(cmd, sizeof(cmd), "ip link set %s0 name %s%d", RADIO_PREFIX, RADIO_PREFIX, radioIndex);
                 _syscmd(cmd, buf, sizeof(buf));
             }
+	    if(fp)
+	        fclose(fp);
         }
         for(apIndex=radioIndex; apIndex<MAX_APS; apIndex+=2)
         {
@@ -3293,6 +3303,7 @@ INT wifi_getAssociatedDeviceDetail(INT apIndex, INT devIndex, wifi_device_t *out
 
     fgets(line, sizeof line, file);
     device = atoi(line);
+    pclose(file);
 
     if(device == 0)
         return RETURN_ERR; //No devices are connected
@@ -6729,6 +6740,7 @@ INT wifi_getNeighboringWiFiStatus(INT radio_index, wifi_neighbor_ap2_t **neighbo
     *output_array_size = scan_count;
     *neighbor_ap_array = scan_array;
     free(line);
+    pclose(f);
     return RETURN_OK;
 
 output_error:
@@ -7027,22 +7039,25 @@ INT wifi_getSSIDTrafficStats2(INT ssidIndex,wifi_ssidTrafficStats2_t *output_str
     fp = popen(pipeCmd, "r");
     fgets(str, MAX_BUF_SIZE,fp);
     out->ssid_BytesSent = atol(str);
+    pclose(fp);
 
     sprintf(pipeCmd,"%s%s%s","cat /proc/net/dev | grep ",interface_name," |  tr -s ' '  | cut -d  ' ' -f3 | tr -d '\n'");
     fp = popen(pipeCmd, "r");
     fgets(str, MAX_BUF_SIZE,fp);
     out->ssid_BytesReceived = atol(str);
-
+    pclose(fp);
 
     sprintf(pipeCmd,"%s%s%s","cat /proc/net/dev | grep ",interface_name," |  tr -s ' '  | cut -d  ' ' -f12 | tr -d '\n'");
     fp = popen(pipeCmd, "r");
     fgets(str, MAX_BUF_SIZE,fp);
     out->ssid_PacketsSent = atol(str);
+    pclose(fp);
 
     sprintf(pipeCmd,"%s%s%s","cat /proc/net/dev | grep ",interface_name," |  tr -s ' '  | cut -d  ' ' -f4 | tr -d '\n'");
     fp = popen(pipeCmd, "r");
     fgets(str, MAX_BUF_SIZE,fp);
     out->ssid_PacketsReceived = atol(str);
+    pclose(fp);
     /*
        //TODO:
        out->ssid_UnicastPacketsSent        = uni->ims_tx_data_packets;
@@ -7303,6 +7318,7 @@ INT wifi_getApAssociatedDeviceTidStatsResult(INT radioIndex,  mac_address_t *cli
         perror("popen for station dump failed\n");
         return RETURN_ERR;
     }
+    pclose(fp);
 
     snprintf(pipeCmd,sizeof(pipeCmd),"grep -n 'Station' "TID_STATS_FILE " | cut -d ':' -f1  | head -2 | tail -1");
     fp=popen(pipeCmd,"r");
@@ -7315,9 +7331,11 @@ INT wifi_getApAssociatedDeviceTidStatsResult(INT radioIndex,  mac_address_t *cli
         lines=atoi(buf);
     else
     {
+	pclose(fp);
         fprintf(stderr,"No devices are connected \n");
         return RETURN_ERR;
     }
+    pclose(fp);
 
     if(lines == 1)
         lines = TOTAL_MAX_LINES; //only one client is connected , considering next MAX lines of iw output
@@ -7330,7 +7348,6 @@ INT wifi_getApAssociatedDeviceTidStatsResult(INT radioIndex,  mac_address_t *cli
         snprintf(pipeCmd, sizeof(pipeCmd),"cat "TID_STATS_FILE" | awk '/%s/ {for(i=0; i<=%d; i++) {getline; print}}'  |  grep -F -A%d 'MSDU'  | awk '{print $3}' | tail -1",mac_addr,lines,tid_index+2);
 
         fp=popen(pipeCmd,"r");
-
         if(fp ==NULL)
         {
             perror("Failed to read from tid file \n");
@@ -7339,6 +7356,7 @@ INT wifi_getApAssociatedDeviceTidStatsResult(INT radioIndex,  mac_address_t *cli
         else if(fgets(buf,sizeof(buf),fp) != NULL)
             stats_entry->num_msdus = atol(buf);
 
+        pclose(fp);
         stats_entry->ac = _tid_ac_index_get[tid_index];
 //      TODO:
 //      ULLONG ewma_time_ms;    <! Moving average value based on last couple of transmitted msdus
@@ -7952,6 +7970,7 @@ INT wifi_getRadioChannelStats(INT radioIndex,wifi_channelStats_t *input_output_c
             strtok(value, " ");
             out->ch_utilization_busy_tx = atol(value);//Updating time in ms
             //TODO: Fetching other information such as ch_radar_noise, ch_max_80211_rssi, ch_non_80211_noise, ch_utilization, ch_utilization_busy_self, ch_utilization_busy_ext
+	    pclose(fp);
         }
     }while(++out<input_output_channelStats_array+array_size);
 #endif
