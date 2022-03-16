@@ -2811,6 +2811,10 @@ INT wifi_getSSIDMACAddress(INT ssidIndex, CHAR *output_string) //Tr181
 INT wifi_applySSIDSettings(INT ssidIndex)
 {
     BOOL status = false;
+    char cmd[MAX_CMD_SIZE] = {0};
+    char buf[MAX_CMD_SIZE] = {0};
+    int apIndex, ret;
+    int radioIndex = ssidIndex % NUMBER_OF_RADIOS;
 
     wifi_getApEnable(ssidIndex,&status);
     // Do not apply when ssid index is disabled
@@ -2824,7 +2828,21 @@ INT wifi_applySSIDSettings(INT ssidIndex)
     if(wifi_setApEnable(ssidIndex,false) != RETURN_OK)
            return RETURN_ERR;
 
-    return wifi_setApEnable(ssidIndex,true);
+    ret = wifi_setApEnable(ssidIndex,true);
+
+    /* Workaround for hostapd issue with multiple bss definitions
+     * when first created interface will be removed
+     * then all vaps other vaps on same phy are removed
+     * after calling setApEnable to false readd all enabled vaps */
+    for(int i=0; i < MAX_APS/NUMBER_OF_RADIOS; i++) {
+       apIndex = 2*i+radioIndex;
+        snprintf(cmd, sizeof(cmd), "cat %s | grep %s%d | cut -d'=' -f2", VAP_STATUS_FILE, AP_PREFIX, apIndex);
+        _syscmd(cmd, buf, sizeof(buf));
+        if(*buf == '1')
+               wifi_setApEnable(apIndex, true);
+    }
+
+    return ret;
 }
 
 //Start the wifi scan and get the result into output buffer for RDKB to parser. The result will be used to manage endpoint list
