@@ -2757,6 +2757,14 @@ INT wifi_getSSIDName(INT apIndex, CHAR *output)
     return RETURN_OK;
 }
 
+static INT wifi_applySSID(INT apIndex)
+{
+    wifi_setApEnable(apIndex,FALSE);
+    wifi_setApEnable(apIndex,TRUE);
+
+    return RETURN_OK;
+}
+
 // Set a max 32 byte string and sets an internal variable to the SSID name          
 INT wifi_setSSIDName(INT apIndex, CHAR *ssid_string)
 {
@@ -2774,6 +2782,7 @@ INT wifi_setSSIDName(INT apIndex, CHAR *ssid_string)
     sprintf(config_file,"%s%d.conf",CONFIG_PREFIX,apIndex);
     wifi_hostapdWrite(config_file, &params, 1);
     wifi_hostapdProcessUpdate(apIndex, &params, 1);
+    wifi_applySSID(apIndex);
     WIFI_ENTRY_EXIT_DEBUG("Exiting %s:%d\n",__func__, __LINE__);
 
     return RETURN_OK;
@@ -4808,8 +4817,9 @@ INT wifi_setApSecurityPreSharedKey(INT apIndex, CHAR *preSharedKey)
     ret = wifi_hostapdWrite(config_file, &params, 1);
     if(!ret)
         ret = wifi_hostapdProcessUpdate(apIndex, &params, 1);
-    return ret;
     //TODO: call hostapd_cli for dynamic_config_control
+
+    return ret;
 }
 
 //A passphrase from which the PreSharedKey is to be generated, for WPA-Personal or WPA2-Personal or WPA-WPA2-Personal security modes.
@@ -4859,6 +4869,7 @@ INT wifi_setApSecurityKeyPassphrase(INT apIndex, CHAR *passPhrase)
     if(!ret)
         wifi_hostapdProcessUpdate(apIndex, &params, 1);
 
+    //TODO: call hostapd_cli for dynamic_config_control
     return ret;
 }
 
