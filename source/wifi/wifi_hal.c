@@ -36,6 +36,7 @@ Licensed under the ISC license
 */
 
 #define HAL_NETLINK_IMPL
+#define _GNU_SOURCE /* needed for strcasestr */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -3218,7 +3219,7 @@ static int AssoDevInfo_callback(struct nl_msg *msg, void *arg) {
 
         if(nla_parse_nested(rinfo, NL80211_RATE_INFO_MAX, sinfo[NL80211_STA_INFO_TX_BITRATE], rate_policy)) {
             fprintf(stderr, "failed to parse nested rate attributes!");
-            return;
+            return NL_SKIP;
         }
 
         if(sinfo[NL80211_STA_INFO_TX_BITRATE]) {
@@ -3229,7 +3230,7 @@ static int AssoDevInfo_callback(struct nl_msg *msg, void *arg) {
 
         if(nla_parse_nested(rinfo, NL80211_RATE_INFO_MAX, sinfo[NL80211_STA_INFO_RX_BITRATE], rate_policy)) {
             fprintf(stderr, "failed to parse nested rate attributes!");
-            return;
+            return NL_SKIP;
         }
 
         if(sinfo[NL80211_STA_INFO_RX_BITRATE]) {
@@ -3292,11 +3293,11 @@ INT wifi_getAssociatedDeviceDetail(INT apIndex, INT devIndex, wifi_device_t *out
     nlmsg_free(msg);
     nlfree(&nl);
 
-    output_struct->wifi_devAssociatedDeviceAuthentiationState = (wifi_device_t*)info.wifi_devAssociatedDeviceAuthentiationState;
-    output_struct->wifi_devRxRate = (wifi_device_t*)info.wifi_devRxRate;
-    output_struct->wifi_devTxRate = (wifi_device_t*)info.wifi_devTxRate;
-    output_struct->wifi_devSignalStrength = (wifi_device_t*)info.wifi_devSignalStrength;
-    memcpy(&output_struct->wifi_devMacAddress,&info.wifi_devMacAddress,sizeof(wifi_device_t));
+    output_struct->wifi_devAssociatedDeviceAuthentiationState = info.wifi_devAssociatedDeviceAuthentiationState;
+    output_struct->wifi_devRxRate = info.wifi_devRxRate;
+    output_struct->wifi_devTxRate = info.wifi_devTxRate;
+    output_struct->wifi_devSignalStrength = info.wifi_devSignalStrength;
+    memcpy(&output_struct->wifi_devMacAddress, &info.wifi_devMacAddress, sizeof(info.wifi_devMacAddress));
     return RETURN_OK;
 #else
     //iw utility to retrieve station information
@@ -4234,15 +4235,15 @@ INT wifi_setPreferPrivateConnection(BOOL enable)
     }
     else
     {
-        File_Reading("cat /tmp/Get5gssidEnable.txt",&ssid_cur_value);
+        File_Reading("cat /tmp/Get5gssidEnable.txt", ssid_cur_value);
         if(strcmp(ssid_cur_value,"1") == 0)
             wifi_RestartPrivateWifi_5G();
         memset(ssid_cur_value,0,sizeof(ssid_cur_value));
-        File_Reading("cat /tmp/GetPub2gssidEnable.txt",&ssid_cur_value);
+        File_Reading("cat /tmp/GetPub2gssidEnable.txt", ssid_cur_value);
         if(strcmp(ssid_cur_value,"1") == 0)
             wifi_RestartHostapd_2G();
         memset(ssid_cur_value,0,sizeof(ssid_cur_value));
-        File_Reading("cat /tmp/GetPub5gssidEnable.txt",&ssid_cur_value);
+        File_Reading("cat /tmp/GetPub5gssidEnable.txt", ssid_cur_value);
         if(strcmp(ssid_cur_value,"1") == 0)
             wifi_RestartHostapd_5G();
     }
@@ -5623,7 +5624,6 @@ static const char *get_line_from_str_buf(const char *buf, char *line)
 
 INT wifi_getApAssociatedDeviceDiagnosticResult3(INT apIndex, wifi_associated_dev3_t **associated_dev_array, UINT *output_array_size)
 {
-    wifi_associated_dev_t *dev = NULL;
     unsigned int assoc_cnt = 0;
     char interface_name[50] = {0};
     char buf[MAX_BUF_SIZE * 50]= {'\0'}; // Increase this buffer if more fields are added to 'iw dev' output filter
@@ -5925,7 +5925,7 @@ INT wifi_getApInactiveAssociatedDeviceDiagnosticResult(char *filename,wifi_assoc
     pclose(fp);
     *output_array_size = maccount;
     wifi_associated_dev3_t* temp = NULL;
-    temp = (wifi_associated_dev_t *) calloc (*output_array_size, sizeof(wifi_associated_dev_t));
+    temp = (wifi_associated_dev3_t *) calloc (*output_array_size, sizeof(wifi_associated_dev3_t));
     *associated_dev_array = temp;
     if(temp == NULL)
     {
@@ -7240,7 +7240,7 @@ static int tidStats_callback(struct nl_msg *msg, void *arg) {
         {
             if(nla_parse_nested(stats_info, NL80211_TID_STATS_MAX,tidattr, tid_policy)) {
                 printf("failed to parse nested stats attributes!");
-                return;
+                return NL_SKIP;
             }
         }
         if(stats_info[NL80211_TID_STATS_TX_MSDU])
@@ -7259,7 +7259,6 @@ INT wifi_getApAssociatedDeviceTidStatsResult(INT radioIndex,  mac_address_t *cli
 #ifdef HAL_NETLINK_IMPL
     Netlink nl;
     char  if_name[10];
-    char mac_addr[MAC_ALEN];
 
     snprintf(if_name, sizeof(if_name), "%s%d", AP_PREFIX, radioIndex);
 
@@ -7287,12 +7286,7 @@ INT wifi_getApAssociatedDeviceTidStatsResult(INT radioIndex,  mac_address_t *cli
               NL80211_CMD_GET_STATION,
               0);
 
-    if(mac_addr_aton(mac_addr, clientMacAddress)) {
-        printf("invalid mac address\n");
-        return 0;
-    }
-
-    nla_put(msg, NL80211_ATTR_MAC, MAC_ALEN, mac_addr);
+    nla_put(msg, NL80211_ATTR_MAC, MAC_ALEN, clientMacAddress);
     nla_put_u32(msg, NL80211_ATTR_IFINDEX, if_nametoindex(if_name));
     nl_cb_set(nl.cb,NL_CB_VALID,NL_CB_CUSTOM,tidStats_callback,tid_stats);
     nl_send_auto(nl.socket, msg);
@@ -7434,14 +7428,14 @@ INT wifi_delApAclDevices(INT apIndex)
         return RETURN_ERR;
 #endif
     char fname[100];
-    int fd;
+    FILE *fp;
 
     snprintf(fname, sizeof(fname), "%s%d", ACL_PREFIX, apIndex);
-    fd = fopen(fname, "w");
-    if (!fd) {
+    fp = fopen(fname, "w");
+    if (!fp) {
             return RETURN_ERR;
     }
-    fclose(fd);
+    fclose(fp);
 
     return RETURN_OK;
 }
@@ -7476,14 +7470,14 @@ static int rxStatsInfo_callback(struct nl_msg *msg, void *arg) {
 
     if(nla_parse_nested(rinfo, NL80211_RATE_INFO_MAX, sinfo[NL80211_STA_INFO_RX_BITRATE], rate_policy )) {
         fprintf(stderr, "failed to parse nested rate attributes!");
-        return;
+        return NL_SKIP;
     }
 
    if(sinfo[NL80211_STA_INFO_TID_STATS])
    {
        if(nla_parse_nested(stats_info, NL80211_TID_STATS_MAX,sinfo[NL80211_STA_INFO_TID_STATS], tid_policy)) {
            printf("failed to parse nested stats attributes!");
-           return;
+           return NL_SKIP;
        }
    }
 
@@ -7491,7 +7485,7 @@ static int rxStatsInfo_callback(struct nl_msg *msg, void *arg) {
    {
        printf("Type is VHT\n");
        if(rinfo[NL80211_RATE_INFO_VHT_NSS])
-           ((wifi_associated_dev_rate_info_rx_stats_t*)arg)->nss = (char*)(nla_get_u8(rinfo[NL80211_RATE_INFO_VHT_NSS]));
+           ((wifi_associated_dev_rate_info_rx_stats_t*)arg)->nss = nla_get_u8(rinfo[NL80211_RATE_INFO_VHT_NSS]);
 
        if(rinfo[NL80211_RATE_INFO_40_MHZ_WIDTH])
             ((wifi_associated_dev_rate_info_rx_stats_t*)arg)->bw = 1;
@@ -7513,7 +7507,7 @@ static int rxStatsInfo_callback(struct nl_msg *msg, void *arg) {
 
   if(sinfo[NL80211_STA_INFO_RX_BITRATE]) {
       if(rinfo[NL80211_RATE_INFO_MCS])
-          ((wifi_associated_dev_rate_info_rx_stats_t*)arg)->mcs = (char*)(nla_get_u8(rinfo[NL80211_RATE_INFO_MCS]));
+          ((wifi_associated_dev_rate_info_rx_stats_t*)arg)->mcs = nla_get_u8(rinfo[NL80211_RATE_INFO_MCS]);
       }
       if(sinfo[NL80211_STA_INFO_RX_BYTES64])
           ((wifi_associated_dev_rate_info_rx_stats_t*)arg)->bytes = nla_get_u64(sinfo[NL80211_STA_INFO_RX_BYTES64]);
@@ -7524,7 +7518,7 @@ static int rxStatsInfo_callback(struct nl_msg *msg, void *arg) {
           ((wifi_associated_dev_rate_info_rx_stats_t*)arg)->msdus = nla_get_u64(stats_info[NL80211_TID_STATS_RX_MSDU]);
 
       if (sinfo[NL80211_STA_INFO_SIGNAL])
-           ((wifi_associated_dev_rate_info_rx_stats_t*)arg)->rssi_combined = (char*)(nla_get_u8(sinfo[NL80211_STA_INFO_SIGNAL]));
+           ((wifi_associated_dev_rate_info_rx_stats_t*)arg)->rssi_combined = nla_get_u8(sinfo[NL80211_STA_INFO_SIGNAL]);
       //Assigning 0 for RETRIES ,PPDUS and MPDUS as we dont have rx retries attribute in libnl_3.3.0
            ((wifi_associated_dev_rate_info_rx_stats_t*)arg)->retries = 0;
            ((wifi_associated_dev_rate_info_rx_stats_t*)arg)->ppdus = 0;
@@ -7538,7 +7532,6 @@ INT wifi_getApAssociatedDeviceRxStatsResult(INT radioIndex, mac_address_t *clien
 {
 #ifdef HAL_NETLINK_IMPL
     Netlink nl;
-    char phy_addr[MAC_ALEN];
     char if_name[10];
 
     snprintf(if_name, sizeof(if_name), "%s%d", AP_PREFIX, radioIndex);
@@ -7566,12 +7559,7 @@ INT wifi_getApAssociatedDeviceRxStatsResult(INT radioIndex, mac_address_t *clien
         NL80211_CMD_GET_STATION,
         0);
 
-    if (mac_addr_aton(phy_addr, clientMacAddress)) {
-        printf("invalid mac address\n");
-        return 0;
-    }
-
-    nla_put(msg, NL80211_ATTR_MAC, MAC_ALEN, phy_addr);
+    nla_put(msg, NL80211_ATTR_MAC, MAC_ALEN, *clientMacAddress);
     nla_put_u32(msg, NL80211_ATTR_IFINDEX, if_nametoindex(if_name));
     nl_cb_set(nl.cb, NL_CB_VALID , NL_CB_CUSTOM, rxStatsInfo_callback, stats_array);
     nl_send_auto(nl.socket, msg);
@@ -7616,21 +7604,21 @@ static int txStatsInfo_callback(struct nl_msg *msg, void *arg) {
 
     if(nla_parse_nested(rinfo, NL80211_RATE_INFO_MAX, sinfo[NL80211_STA_INFO_TX_BITRATE], rate_policy)) {
         fprintf(stderr, "failed to parse nested rate attributes!");
-        return;
+        return NL_SKIP;
     }
 
     if(sinfo[NL80211_STA_INFO_TID_STATS])
     {
         if(nla_parse_nested(stats_info, NL80211_TID_STATS_MAX,sinfo[NL80211_STA_INFO_TID_STATS], tid_policy)) {
             printf("failed to parse nested stats attributes!");
-            return;
+            return NL_SKIP;
         }
     }
     if(nla_data(tb[NL80211_ATTR_VHT_CAPABILITY]))
     {
         printf("Type is VHT\n");
         if(rinfo[NL80211_RATE_INFO_VHT_NSS])
-            ((wifi_associated_dev_rate_info_tx_stats_t*)arg)->nss = (char*)(nla_get_u8(rinfo[NL80211_RATE_INFO_VHT_NSS]));
+            ((wifi_associated_dev_rate_info_tx_stats_t*)arg)->nss = nla_get_u8(rinfo[NL80211_RATE_INFO_VHT_NSS]);
 
         if(rinfo[NL80211_RATE_INFO_40_MHZ_WIDTH])
             ((wifi_associated_dev_rate_info_tx_stats_t*)arg)->bw = 1;
@@ -7652,7 +7640,7 @@ static int txStatsInfo_callback(struct nl_msg *msg, void *arg) {
 
     if(sinfo[NL80211_STA_INFO_TX_BITRATE]) {
        if(rinfo[NL80211_RATE_INFO_MCS])
-           ((wifi_associated_dev_rate_info_tx_stats_t*)arg)->mcs = (char*)(nla_get_u8(rinfo[NL80211_RATE_INFO_MCS]));
+           ((wifi_associated_dev_rate_info_tx_stats_t*)arg)->mcs = nla_get_u8(rinfo[NL80211_RATE_INFO_MCS]);
     }
 
     if(sinfo[NL80211_STA_INFO_TX_BYTES64])
@@ -7681,7 +7669,6 @@ INT wifi_getApAssociatedDeviceTxStatsResult(INT radioIndex, mac_address_t *clien
 {
 #ifdef HAL_NETLINK_IMPL
     Netlink nl;
-    char mac_addr[MAC_ALEN];
     char if_name[10];
 
     snprintf(if_name, sizeof(if_name), "%s%d", AP_PREFIX, radioIndex);
@@ -7710,11 +7697,7 @@ INT wifi_getApAssociatedDeviceTxStatsResult(INT radioIndex, mac_address_t *clien
                 NL80211_CMD_GET_STATION,
                 0);
 
-    if(mac_addr_aton(mac_addr, clientMacAddress)) {
-        printf("invalid mac address\n");
-        return 0;
-    }
-    nla_put(msg, NL80211_ATTR_MAC, MAC_ALEN, mac_addr);
+    nla_put(msg, NL80211_ATTR_MAC, MAC_ALEN, clientMacAddress);
     nla_put_u32(msg, NL80211_ATTR_IFINDEX, if_nametoindex(if_name));
     nl_cb_set(nl.cb, NL_CB_VALID , NL_CB_CUSTOM, txStatsInfo_callback, stats_array);
     nl_send_auto(nl.socket, msg);
@@ -7988,9 +7971,9 @@ INT wifi_getRadioChannelStats(INT radioIndex,wifi_channelStats_t *input_output_c
 /* Hostapd events */
 
 #ifndef container_of
-#define offsetof(st, m) ((size_t)&(((st *)0)->m))
+#define offset_of(st, m) ((size_t)&(((st *)0)->m))
 #define container_of(ptr, type, member) \
-                   ((type *)((char *)ptr - offsetof(type, member)))
+                   ((type *)((char *)ptr - offset_of(type, member)))
 #endif /* container_of */
 
 struct ctrl {
@@ -8091,7 +8074,7 @@ static void ctrl_process(struct ctrl *ctrl)
         if (!(str = index(ctrl->reply, ' ')))
             return;
 
-        (clients_disconnect_cb)(ctrl->ssid_index,str,0);
+        (clients_disconnect_cb)(ctrl->ssid_index, (char*)str, 0);
         goto handled;
     }
 
@@ -8483,6 +8466,11 @@ INT wifi_getMultiPskKeys(INT apIndex, wifi_key_multi_psk_t *keys, INT keysNumber
 
     keys_it = keys;
     while ((read = getline(&line, &len, fd)) != -1) {
+        //Strip trailing new line if present
+        if (read > 0 && line[read-1] == '\n') {
+            line[read-1] = '\0';
+        }
+
         if(strcmp(line,"keyid=")) {
             sscanf(line, "keyid=%s", &(keys_it->wifi_keyId));
             if (!(pos = index(line, ' '))) {
@@ -8501,7 +8489,7 @@ INT wifi_getMultiPskKeys(INT apIndex, wifi_key_multi_psk_t *keys, INT keysNumber
             pos++;
 
             //The rest is PSK
-            snprintf(&(keys_it->wifi_psk),strlen(pos),pos);
+            snprintf(&keys_it->wifi_psk[0], sizeof(keys_it->wifi_psk), "%s", pos);
             keys_it++;
 
             if(--keysNumber <= 0)
@@ -8625,8 +8613,8 @@ int main(int argc,char **argv)
     }
     if(strstr(argv[1], "wifi_getRadioAutoChannelEnable")!=NULL)
     {
-        bool b = false;
-        bool *output_bool = &b;
+        BOOL b = FALSE;
+        BOOL *output_bool = &b;
         wifi_getRadioAutoChannelEnable(index,output_bool);
         printf("Channel enabled = %d \n",b);
         return 0;
@@ -8639,8 +8627,8 @@ int main(int argc,char **argv)
     }
     if(strstr(argv[1], "wifi_getApSsidAdvertisementEnable")!=NULL)
     {
-        bool b = false;
-        bool *output_bool = &b;
+        BOOL b = FALSE;
+        BOOL *output_bool = &b;
         wifi_getApSsidAdvertisementEnable(index,output_bool);
         printf("advertisment enabled =  %d\n",b);
         return 0;
@@ -8654,13 +8642,13 @@ int main(int argc,char **argv)
         }
 
         char sta[20] = {'\0'};
-        u64 handle= 0;
+        ULLONG handle= 0;
         strcpy(sta,argv[3]);
-        mac_address_t *st;
-        st=sta;
+        mac_address_t st;
+	mac_addr_aton(st,sta);
 
         wifi_associated_dev_tid_stats_t tid_stats;
-        wifi_getApAssociatedDeviceTidStatsResult(index,st,&tid_stats,handle);
+        wifi_getApAssociatedDeviceTidStatsResult(index,&st,&tid_stats,&handle);
         for(int tid_index=0; tid_index<PS_MAX_TID; tid_index++) //print tid stats
             printf(" tid=%d \t ac=%d \t num_msdus=%lld \n" ,tid_stats.tid_array[tid_index].tid,tid_stats.tid_array[tid_index].ac,tid_stats.tid_array[tid_index].num_msdus);
     }
@@ -9176,7 +9164,6 @@ static int getRadioCapabilities(int radioIndex, wifi_radio_capabilities_t *rcap)
 
     INT status;
     wifi_channels_list_t *chlistp;
-    unsigned int *uarray;
     CHAR output_string[64];
     CHAR pchannels[128];
 
@@ -9282,12 +9269,11 @@ static int getRadioCapabilities(int radioIndex, wifi_radio_capabilities_t *rcap)
 
 
     rcap->transmitPowerSupported_list[i].numberOfElements = 5;
-    uarray = rcap->transmitPowerSupported_list[i].transmitPowerSupported;
-    uarray[0]=12;
-    uarray[1]=25;
-    uarray[2]=50;
-    uarray[3]=75;
-    uarray[4]=100;
+    rcap->transmitPowerSupported_list[i].transmitPowerSupported[0]=12;
+    rcap->transmitPowerSupported_list[i].transmitPowerSupported[1]=25;
+    rcap->transmitPowerSupported_list[i].transmitPowerSupported[2]=50;
+    rcap->transmitPowerSupported_list[i].transmitPowerSupported[3]=75;
+    rcap->transmitPowerSupported_list[i].transmitPowerSupported[4]=100;
     rcap->cipherSupported = 0;
     rcap->cipherSupported |= WIFI_CIPHER_CAPA_ENC_TKIP | WIFI_CIPHER_CAPA_ENC_CCMP;
     rcap->maxNumberVAPs = MAX_NUM_VAP_PER_RADIO;
