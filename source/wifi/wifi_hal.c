@@ -6744,6 +6744,7 @@ INT wifi_getNeighboringWiFiStatus(INT radio_index, wifi_neighbor_ap2_t **neighbo
     return RETURN_OK;
 
 output_error:
+    pclose(f);
     free(line);
     free(scan_array);
     return RETURN_ERR;
@@ -7936,8 +7937,10 @@ INT wifi_getRadioChannelStats(INT radioIndex,wifi_channelStats_t *input_output_c
 
             fgets(output, MAX_BUF_SIZE, fp);
             strtok_r(output, ":", &value);
-            if(strcmp(output, "noise"))//Statistical information not available for this frequency
+            if(strcmp(output, "noise")) { //Statistical information not available for this frequency
+                pclose(fp);
                 continue;
+            }
             strtok(value, " ");
             out->ch_noise = atoi(value);
 
