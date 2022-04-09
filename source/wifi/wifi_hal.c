@@ -6687,6 +6687,7 @@ INT wifi_getNeighboringWiFiStatus(INT radio_index, wifi_neighbor_ap2_t **neighbo
             if(strncmp(line,"BSS",3)==0) {
                 // No HT and no VHT => 20Mhz
                 snprintf(scan_array[i].ap_OperatingChannelBandwidth, sizeof(scan_array[i].ap_OperatingChannelBandwidth), "11%s", radio_index%1 ? "A": "G");
+                wifi_dbg_printf("%s: ap_OperatingChannelBandwidth = '%s'\n", __func__, scan_array[i].ap_OperatingChannelBandwidth);
                 continue;
             }
             if(strncmp(line,"	HT operation:",14)!= 0) {
@@ -6696,7 +6697,8 @@ INT wifi_getNeighboringWiFiStatus(INT radio_index, wifi_neighbor_ap2_t **neighbo
 
             read = getline(&line, &len, f);
             sscanf(line,"		 * secondary channel offset: %s", &secondary_chan);
-            if(!strcmp(secondary_chan, "no secondary")) {
+
+            if(!strcmp(secondary_chan, "no")) {
                 //20Mhz
                 snprintf(scan_array[i].ap_OperatingChannelBandwidth, sizeof(scan_array[i].ap_OperatingChannelBandwidth), "11N%s_HT20", radio_index%1 ? "A": "G");
             }
@@ -6713,21 +6715,21 @@ INT wifi_getNeighboringWiFiStatus(INT radio_index, wifi_neighbor_ap2_t **neighbo
 
 
             read = getline(&line, &len, f);
-            if(strncmp(line,"BSS",3) == 0) {
+            if(strncmp(line,"	VHT operation:",15) !=0) {
+                wifi_dbg_printf("%s: ap_OperatingChannelBandwidth = '%s'\n", __func__, scan_array[i].ap_OperatingChannelBandwidth);
                 // No VHT
                 continue;
             }
-            if(strncmp(line,"	VHT operation:",15) !=0) {
-                    wifi_dbg_printf("%s:VHT output parsing error (%s)\n", __func__, line);
-                    goto output_error;
-            }
             read = getline(&line, &len, f);
             sscanf(line,"		 * channel width: %d", &vht_channel_width);
-            if(vht_channel_width -= 1) {
+            if(vht_channel_width == 1) {
                 snprintf(scan_array[i].ap_OperatingChannelBandwidth, sizeof(scan_array[i].ap_OperatingChannelBandwidth), "11AC_VHT80");
+            } else {
+                snprintf(scan_array[i].ap_OperatingChannelBandwidth, sizeof(scan_array[i].ap_OperatingChannelBandwidth), "11AC_VHT40");
             }
 
         }
+        wifi_dbg_printf("%s: ap_OperatingChannelBandwidth = '%s'\n", __func__, scan_array[i].ap_OperatingChannelBandwidth);
         read = getline(&line, &len, f);
     }
     wifi_dbg_printf("%s:Counted BSS: %d\n",__func__, scan_count);
