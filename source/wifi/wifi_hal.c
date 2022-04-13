@@ -7849,6 +7849,72 @@ static int ieee80211_channel_to_frequency(int channel, int *freqMHz)
 
     return 0;
 }
+
+static int get_survey_dump_buf(INT radioIndex, int channel, const char *buf, size_t bufsz)
+{
+    int freqMHz = -1;
+    char cmd[MAX_CMD_SIZE] = {'\0'};
+
+    ieee80211_channel_to_frequency(channel, &freqMHz);
+    if (freqMHz == -1) {
+        wifi_dbg_printf("%s: failed to get channel frequency for channel: %d\n", __func__, channel);
+        return -1;
+    }
+
+    if (sprintf(cmd,"iw dev %s%d survey dump | grep -A5 %d | tr -d '\\t'", RADIO_PREFIX, radioIndex, freqMHz) < 0) {
+        wifi_dbg_printf("%s: failed to build iw dev command for radioIndex=%d freq=%d\n", __FUNCTION__,
+                         radioIndex, freqMHz);
+        return -1;
+    }
+
+    if (_syscmd(cmd, buf, bufsz) == RETURN_ERR) {
+        wifi_dbg_printf("%s: failed to execute '%s' for radioIndex=%d\n", __FUNCTION__, cmd, radioIndex);
+        return -1;
+    }
+
+    return 0;
+}
+
+static int fetch_survey_from_buf(INT radioIndex, const char *buf, wifi_channelStats_t *stats)
+{
+    const char *ptr = buf;
+    char *key = NULL;
+    char *val = NULL;
+    char line[256] = { '\0' };
+
+    while (ptr = get_line_from_str_buf(ptr, line)) {
+        if (strstr(line, "Frequency")) continue;
+
+        key = strtok(line, ":");
+        val = strtok(NULL, " ");
+        wifi_dbg_printf("%s: key='%s' val='%s'\n", __func__, key, val);
+
+        if (!strcmp(key, "noise")) {
+            sscanf(val, "%d", &stats->ch_noise);
+            if (stats->ch_noise == 0) {
+                // Workaround for missing noise information.
+                // Assume -95 for 2.4G and -103 for 5G
+                if (radioIndex == 0) stats->ch_noise = -95;
+                if (radioIndex == 1) stats->ch_noise = -103;
+            }
+        }
+        else if (!strcmp(key, "channel active time")) {
+            sscanf(val, "%llu", &stats->ch_utilization_total);
+        }
+        else if (!strcmp(key, "channel busy time")) {
+            sscanf(val, "%llu", &stats->ch_utilization_busy);
+        }
+        else if (!strcmp(key, "channel receive time")) {
+            sscanf(val, "%llu", &stats->ch_utilization_busy_rx);
+        }
+        else if (!strcmp(key, "channel transmit time")) {
+            sscanf(val, "%llu", &stats->ch_utilization_busy_tx);
+        }
+    };
+
+    return 0;
+}
+
 INT wifi_getRadioChannelStats(INT radioIndex,wifi_channelStats_t *input_output_channelStats_array,INT array_size)
 {
     WIFI_ENTRY_EXIT_DEBUG("Inside %s:%d\n",__func__, __LINE__);
@@ -7904,65 +7970,61 @@ INT wifi_getRadioChannelStats(INT radioIndex,wifi_channelStats_t *input_output_c
         //TODO: ch_radar_noise, ch_max_80211_rssi, ch_non_80211_noise, ch_utilization_busy_self
     }
 #else
-    int freqMHz;
-    FILE *fp = NULL;
-    char command[MAX_CMD_SIZE], output[MAX_BUF_SIZE], *value;
-    wifi_channelStats_t *out=input_output_channelStats_array;
+    ULONG channel = 0;
+    int i;
+    int number_of_channels = array_size;
+    char buf[512];
+    INT ret;
+    wifi_channelStats_t tmp_stats;
 
-    snprintf(command, sizeof(command), "iw dev %s%d survey dump > /tmp/Channel_Stats.txt", RADIO_PREFIX, radioIndex);
-    system(command);
-
-    do
-    {
-        if(!array_size)
-            snprintf(command, sizeof(command), "cat /tmp/Channel_Stats.txt | grep -A5 '\\[in use\\]' | tr -d '\t'");
-        else
-        {
-            ieee80211_channel_to_frequency(out->ch_number, &freqMHz);
-            snprintf(command, sizeof(command), "cat /tmp/Channel_Stats.txt | grep -A5 %d | tr -d '\t'", freqMHz);
+    if (number_of_channels == 0) {
+        if (wifi_getRadioChannel(radioIndex, &channel) != RETURN_OK) {
+            wifi_dbg_printf("%s: cannot get current channel for radioIndex=%d\n", __func__, radioIndex);
+            return RETURN_ERR;
         }
-        if((fp = popen(command, "r")))
-        {
-            fgets(output, MAX_BUF_SIZE, fp);
-            if(!out->ch_number)
-            {
-                strtok_r(output, ":", &value);
-                strtok(value, " ");
-                out->ch_number = ieee80211_frequency_to_channel(atoi(value));
-            }
+        number_of_channels = 1;
+        input_output_channelStats_array[0].ch_number = channel;
+    }
 
-            fgets(output, MAX_BUF_SIZE, fp);
-            strtok_r(output, ":", &value);
-            if(strcmp(output, "noise")) { //Statistical information not available for this frequency
-                pclose(fp);
-                continue;
-            }
-            strtok(value, " ");
-            out->ch_noise = atoi(value);
+    for (i = 0; i < number_of_channels; i++) {
 
-            fgets(output, MAX_BUF_SIZE, fp);
-            strtok_r(output, ":", &value);
-            strtok(value, " ");
-            out->ch_utilization_total = atol(value);//Updating time in ms
+        input_output_channelStats_array[i].ch_noise = 0;
+        input_output_channelStats_array[i].ch_utilization_busy_rx = 0;
+        input_output_channelStats_array[i].ch_utilization_busy_tx = 0;
+        input_output_channelStats_array[i].ch_utilization_busy = 0;
+        input_output_channelStats_array[i].ch_utilization_busy_ext = 0; // XXX: unavailable
+        input_output_channelStats_array[i].ch_utilization_total = 0;
 
-            fgets(output, MAX_BUF_SIZE, fp);
-            strtok_r(output, ":", &value);
-            strtok(value, " ");
-            out->ch_utilization_busy = atol(value);//Updating time in ms
-
-            fgets(output, MAX_BUF_SIZE, fp);
-            strtok_r(output, ":", &value);
-            strtok(value, " ");
-            out->ch_utilization_busy_rx = atol(value);//Updating time in ms
-
-            fgets(output, MAX_BUF_SIZE, fp);
-            strtok_r(output, ":", &value);
-            strtok(value, " ");
-            out->ch_utilization_busy_tx = atol(value);//Updating time in ms
-            //TODO: Fetching other information such as ch_radar_noise, ch_max_80211_rssi, ch_non_80211_noise, ch_utilization, ch_utilization_busy_self, ch_utilization_busy_ext
-	    pclose(fp);
+        memset(buf, 0, sizeof(buf));
+        if (get_survey_dump_buf(radioIndex, input_output_channelStats_array[i].ch_number, buf, sizeof(buf))) {
+            return RETURN_ERR;
         }
-    }while(++out<input_output_channelStats_array+array_size);
+        if (fetch_survey_from_buf(radioIndex, buf, &input_output_channelStats_array[i])) {
+            wifi_dbg_printf("%s: cannot fetch survey from buf for radioIndex=%d\n", __func__, radioIndex);
+            return RETURN_ERR;
+        }
+
+        // XXX: fake missing 'self' counter which is not available in iw survey output
+        //      the 'self' counter (a.k.a 'bss') requires Linux Kernel update
+        input_output_channelStats_array[i].ch_utilization_busy_self = input_output_channelStats_array[i].ch_utilization_busy_rx / 8;
+
+        input_output_channelStats_array[i].ch_utilization_busy_rx *= 1000;
+        input_output_channelStats_array[i].ch_utilization_busy_tx *= 1000;
+        input_output_channelStats_array[i].ch_utilization_busy_self *= 1000;
+        input_output_channelStats_array[i].ch_utilization_busy *= 1000;
+        input_output_channelStats_array[i].ch_utilization_total *= 1000;
+
+        wifi_dbg_printf("%s: ch_number=%d ch_noise=%d total=%llu busy=%llu busy_rx=%llu busy_tx=%llu busy_self=%llu busy_ext=%llu\n",
+                   __func__,
+                   input_output_channelStats_array[i].ch_number,
+                   input_output_channelStats_array[i].ch_noise,
+                   input_output_channelStats_array[i].ch_utilization_total,
+                   input_output_channelStats_array[i].ch_utilization_busy,
+                   input_output_channelStats_array[i].ch_utilization_busy_rx,
+                   input_output_channelStats_array[i].ch_utilization_busy_tx,
+                   input_output_channelStats_array[i].ch_utilization_busy_self,
+                   input_output_channelStats_array[i].ch_utilization_busy_ext);
+    }
 #endif
     WIFI_ENTRY_EXIT_DEBUG("Exiting %s:%d\n",__func__, __LINE__);
     return RETURN_OK;
