@@ -9306,28 +9306,26 @@ INT wifi_createVAP(wifi_radio_index_t index, wifi_vap_info_map_t *map)
     return RETURN_OK;
 }
 
-int parse_channel_list_int_arr(int radioIndex, char *pchannels, wifi_channels_list_t* chlistptr)
+int parse_channel_list_int_arr(char *pchannels, wifi_channels_list_t* chlistptr)
 {
-
-    char *token;
+    char *token, *next;
     const char s[2] = ",";
     int count =0;
 
     /* get the first token */
-    token = strtok(pchannels, s);
+    token = strtok_r(pchannels, s, &next);
 
     /* walk through other tokens */
-    while( token != NULL ) {
-        chlistptr->channels_list[count] = atoi(token);
-        count++;
-        token = strtok(NULL, s);
+    while( token != NULL && count < MAX_CHANNELS) {
+        chlistptr->channels_list[count++] = atoi(token);
+        token = strtok_r(NULL, s, &next);
     }
+
     return count;
 }
 
 static int getRadioCapabilities(int radioIndex, wifi_radio_capabilities_t *rcap)
 {
-
     INT status;
     wifi_channels_list_t *chlistp;
     CHAR output_string[64];
@@ -9354,7 +9352,7 @@ static int getRadioCapabilities(int radioIndex, wifi_radio_capabilities_t *rcap)
          printf("[wifi_hal dbg] : func[%s] line[%d] error_ret[%d] radio_index[%d] output[%s]\n", __FUNCTION__, __LINE__, status, radioIndex, pchannels);
     }
     /* Number of channels and list*/
-    chlistp->num_channels = parse_channel_list_int_arr(radioIndex, pchannels, chlistp);
+    chlistp->num_channels = parse_channel_list_int_arr(pchannels, chlistp);
 
     /* autoChannelSupported */
     /* always ON with wifi_getRadioAutoChannelSupported */
@@ -9449,8 +9447,9 @@ static int getRadioCapabilities(int radioIndex, wifi_radio_capabilities_t *rcap)
 
 INT wifi_getHalCapability(wifi_hal_capability_t *cap)
 {
-    int i = 0, j = 0;
-    INT status;
+    INT status, radioIndex;
+    char cmd[MAX_BUF_SIZE], output[MAX_BUF_SIZE];
+
     WIFI_ENTRY_EXIT_DEBUG("Inside %s:%d\n",__func__, __LINE__);
 
     memset(cap, 0, sizeof(wifi_hal_capability_t));
@@ -9460,17 +9459,19 @@ INT wifi_getHalCapability(wifi_hal_capability_t *cap)
     cap->version.minor = WIFI_HAL_MINOR_VERSION;
 
     /* number of radios platform property */
-    cap->wifi_prop.numRadios = 2; // number of radios
+    snprintf(cmd, sizeof(cmd), "ls -d /sys/class/net/wlan* | wc -l");
+    _syscmd(cmd, output, sizeof(output));
+    cap->wifi_prop.numRadios = atoi(output);
 
-    for(i=0; i < cap->wifi_prop.numRadios; i++)
+    for(radioIndex=0; radioIndex < cap->wifi_prop.numRadios; radioIndex++)
     {
-
-        status = getRadioCapabilities(i, &(cap->wifi_prop.radiocap[i]));
+        status = getRadioCapabilities(radioIndex, &(cap->wifi_prop.radiocap[radioIndex]));
         if (status != 0) {
-            printf("%s: getRadioCapabilities idx = %d\n", __FUNCTION__, i);
+            printf("%s: getRadioCapabilities idx = %d\n", __FUNCTION__, radioIndex);
             return RETURN_ERR;
         }
     }
+    cap->BandSteeringSupported = FALSE;
     WIFI_ENTRY_EXIT_DEBUG("Exiting %s:%d\n",__func__, __LINE__);
     return RETURN_OK;
 }
