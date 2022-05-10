@@ -9164,26 +9164,30 @@ INT wifi_getRadioVapInfoMap(wifi_radio_index_t index, wifi_vap_info_map_t *map)
     wifi_secur_list *secur_item;
     int vap_index;
     INT mode;
-    map->num_vaps = 3; // XXX: this is a hack. For both radio let's support 3 vaps for now
-                       //      home, backhaul and onboard.
+    map->num_vaps = 5; // XXX: this is a hack. For both radio let's support 5 vaps for now
+
     WIFI_ENTRY_EXIT_DEBUG("Inside %s:%d\n",__func__, __LINE__);
     printf("Entering %s index = %d", __func__, (int)index);
 
     map->vap_array[index].radio_index = index;
-    for (i = 0; i < 3; i++)
+    for (i = 0; i < 5; i++)
     {
         // XXX: hardcode vap indexes for now (0,1 - home, 2,3 - backhaul 6,7 - onboard)
         if (index == 0)
         {
             if (i == 0) vap_index = 0;
             else if (i == 1) vap_index = 2;
-            else if (i == 2) vap_index = 6;
+            else if (i == 2) vap_index = 4;
+            else if (i == 3) vap_index = 6;
+            else if (i == 4) vap_index = 8;
         }
         else if (index == 1)
         {
             if (i == 0) vap_index = 1;
             else if (i == 1) vap_index = 3;
-            else if (i == 2) vap_index = 7;
+            else if (i == 2) vap_index = 5;
+            else if (i == 3) vap_index = 7;
+            else if (i == 4) vap_index = 9;
         }
         else
         {
