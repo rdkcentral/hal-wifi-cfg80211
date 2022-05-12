@@ -9504,6 +9504,19 @@ INT wifi_getApAssociatedDevice(INT ap_index, mac_address_t *output_deviceMacAddr
 #else
 INT wifi_getApAssociatedDevice(INT ap_index, CHAR *output_buf, INT output_buf_size)
 {
-     return RETURN_OK;
+    char cmd[128];
+    BOOL status = false;
+
+    if(ap_index > MAX_APS)
+        return RETURN_ERR;
+
+    wifi_getApEnable(ap_index,&status);
+    if (!status)
+        return RETURN_OK;
+
+    sprintf(cmd, "hostapd_cli -i %s%d list_sta | tr -d \"\\n\"", AP_PREFIX, ap_index);
+    _syscmd(cmd, output_buf, output_buf_size);
+    
+    return RETURN_OK;
 }
 #endif
