@@ -2000,15 +2000,17 @@ INT wifi_setRadioOperatingChannelBandwidth(INT radioIndex, CHAR *output_string) 
             pptr->value="1";
         else if(strcmp(output_string,"80MHz") == 0)
             pptr->value="1";
+        else 
+            pptr->value="0";
 
         pptr++; // added ieee80211n
 
-	if(strcmp(output_string,"80MHz") == 0)
-	{
-	    pptr->name="ieee80211ac";
-	    pptr->value="1";
-	    pptr++; // added ieee80211ac
-	}
+        pptr->name="ieee80211ac";
+        if(strcmp(output_string,"80MHz") == 0)
+            pptr->value="1";
+        else
+            pptr->value="0";
+        pptr++;
     }
 
     for(int i=0; i<=MAX_APS/NUMBER_OF_RADIOS; i++)
