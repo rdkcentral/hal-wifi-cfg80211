@@ -7535,6 +7535,11 @@ INT wifi_getApAssociatedDeviceRxStatsResult(INT radioIndex, mac_address_t *clien
     Netlink nl;
     char if_name[10];
 
+    *output_array_size = sizeof(wifi_associated_dev_rate_info_rx_stats_t);
+
+    if (*output_array_size <= 0)
+        return RETURN_OK;
+
     snprintf(if_name, sizeof(if_name), "%s%d", AP_PREFIX, radioIndex);
     nl.id = initSock80211(&nl);
 
@@ -7671,6 +7676,11 @@ INT wifi_getApAssociatedDeviceTxStatsResult(INT radioIndex, mac_address_t *clien
 #ifdef HAL_NETLINK_IMPL
     Netlink nl;
     char if_name[10];
+
+    *output_array_size = sizeof(wifi_associated_dev_rate_info_tx_stats_t);
+
+    if (*output_array_size <= 0)
+        return RETURN_OK;
 
     snprintf(if_name, sizeof(if_name), "%s%d", AP_PREFIX, radioIndex);
 
