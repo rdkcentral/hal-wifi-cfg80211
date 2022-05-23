@@ -9524,7 +9524,7 @@ INT wifi_getApAssociatedDevice(INT ap_index, CHAR *output_buf, INT output_buf_si
     if (!status)
         return RETURN_OK;
 
-    sprintf(cmd, "hostapd_cli -i %s%d list_sta | tr -d \"\\n\"", AP_PREFIX, ap_index);
+    sprintf(cmd, "hostapd_cli -i %s%d list_sta | tr '\\n' ',' | sed 's/.$//'", AP_PREFIX, ap_index);
     _syscmd(cmd, output_buf, output_buf_size);
     
     return RETURN_OK;
