@@ -120,6 +120,9 @@ Licensed under the ISC license
 #define DEF_RADIO_PARAM_CONF "/usr/ccsp/wifi/radio_param_def.cfg"
 #define LM_DHCP_CLIENT_FORMAT   "%63d %17s %63s %63s"
 
+#define HOSTAPD_HT_CAPAB_20 "[SHORT-GI-20]"
+#define HOSTAPD_HT_CAPAB_40 "[SHORT-GI-20][SHORT-GI-40]"
+
 #define BW_FNAME "/nvram/bw_file.txt"
 
 #define PS_MAX_TID 16
@@ -2076,20 +2079,20 @@ INT wifi_setRadioExtChannel(INT radioIndex, CHAR *string) //Tr181	//AP only
     if(radioIndex == 0)
     {
 	if(NULL!= strstr(string,"Above"))
-            strcpy(ext_channel,"[HT40][SHORT-GI-20][HT40+]");
+            strcpy(ext_channel, HOSTAPD_HT_CAPAB_40 "[HT40+]");
         else if(NULL!= strstr(string,"Below"))
-            strcpy(ext_channel,"[HT40][SHORT-GI-20][HT40-]");
+            strcpy(ext_channel, HOSTAPD_HT_CAPAB_40 "[HT40-]");
 	else
-	    strcpy(ext_channel,"[SHORT-GI-20]");
+	    strcpy(ext_channel, HOSTAPD_HT_CAPAB_20);
     }
     else if(radioIndex  == 1)
     {
         if(NULL!= strstr(string,"Above"))
-            strcpy(ext_channel,"[HT40][SHORT-GI-20][HT40+]");
+            strcpy(ext_channel, HOSTAPD_HT_CAPAB_40 "[HT40+]");
         else if(NULL!= strstr(string,"Below"))
-            strcpy(ext_channel,"[HT40][SHORT-GI-20][HT40-]");
+            strcpy(ext_channel, HOSTAPD_HT_CAPAB_40 "[HT40-]");
 	else
-	    strcpy(ext_channel,"[SHORT-GI-20]");
+	    strcpy(ext_channel, HOSTAPD_HT_CAPAB_20);
     }
 
     params.value = ext_channel;
