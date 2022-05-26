@@ -1912,8 +1912,7 @@ INT wifi_getRadioOperatingChannelBandwidth(INT radioIndex, CHAR *output_string) 
 
     snprintf(cmd, sizeof(cmd),"iw dev %s%d info | grep 'width' | cut -d  ' ' -f6",AP_PREFIX, radioIndex);
     ret = _syscmd(cmd, buf, sizeof(buf));
-    printf("the ret is %d \n",ret);
-    len= strlen(buf);
+    len = strlen(buf);
     if((ret != 0) && (len == 0))
     {
          WIFI_ENTRY_EXIT_DEBUG("failed with Command %s %s:%d\n",cmd,__func__, __LINE__);
@@ -2586,9 +2585,6 @@ INT wifi_getRadioTrafficStats2(INT radioIndex, wifi_radioTrafficStats2_t *output
         }
 
         GetIfacestatus(public_interface_name, public_interface_status);
-
-        printf("private_interface_name %s private_interface_status %s \n", private_interface_name, private_interface_status);
-        printf("public_interface_name %s public_interface_status %s \n", public_interface_name, public_interface_status);
 
         if (strcmp(private_interface_status, "1") == 0)
             wifi_halGetIfStats(private_interface_name, &private_radioTrafficStats);
@@ -6691,6 +6687,7 @@ INT wifi_getNeighboringWiFiStatus(INT radio_index, wifi_neighbor_ap2_t **neighbo
             if(strncmp(line,"BSS",3)==0) {
                 // No HT and no VHT => 20Mhz
                 snprintf(scan_array[i].ap_OperatingChannelBandwidth, sizeof(scan_array[i].ap_OperatingChannelBandwidth), "11%s", radio_index%1 ? "A": "G");
+                wifi_dbg_printf("%s: ap_OperatingChannelBandwidth = '%s'\n", __func__, scan_array[i].ap_OperatingChannelBandwidth);
                 continue;
             }
             if(strncmp(line,"	HT operation:",14)!= 0) {
@@ -6700,7 +6697,8 @@ INT wifi_getNeighboringWiFiStatus(INT radio_index, wifi_neighbor_ap2_t **neighbo
 
             read = getline(&line, &len, f);
             sscanf(line,"		 * secondary channel offset: %s", &secondary_chan);
-            if(!strcmp(secondary_chan, "no secondary")) {
+
+            if(!strcmp(secondary_chan, "no")) {
                 //20Mhz
                 snprintf(scan_array[i].ap_OperatingChannelBandwidth, sizeof(scan_array[i].ap_OperatingChannelBandwidth), "11N%s_HT20", radio_index%1 ? "A": "G");
             }
@@ -6717,21 +6715,21 @@ INT wifi_getNeighboringWiFiStatus(INT radio_index, wifi_neighbor_ap2_t **neighbo
 
 
             read = getline(&line, &len, f);
-            if(strncmp(line,"BSS",3) == 0) {
+            if(strncmp(line,"	VHT operation:",15) !=0) {
+                wifi_dbg_printf("%s: ap_OperatingChannelBandwidth = '%s'\n", __func__, scan_array[i].ap_OperatingChannelBandwidth);
                 // No VHT
                 continue;
             }
-            if(strncmp(line,"	VHT operation:",15) !=0) {
-                    wifi_dbg_printf("%s:VHT output parsing error (%s)\n", __func__, line);
-                    goto output_error;
-            }
             read = getline(&line, &len, f);
             sscanf(line,"		 * channel width: %d", &vht_channel_width);
-            if(vht_channel_width -= 1) {
+            if(vht_channel_width == 1) {
                 snprintf(scan_array[i].ap_OperatingChannelBandwidth, sizeof(scan_array[i].ap_OperatingChannelBandwidth), "11AC_VHT80");
+            } else {
+                snprintf(scan_array[i].ap_OperatingChannelBandwidth, sizeof(scan_array[i].ap_OperatingChannelBandwidth), "11AC_VHT40");
             }
 
         }
+        wifi_dbg_printf("%s: ap_OperatingChannelBandwidth = '%s'\n", __func__, scan_array[i].ap_OperatingChannelBandwidth);
         read = getline(&line, &len, f);
     }
     wifi_dbg_printf("%s:Counted BSS: %d\n",__func__, scan_count);
@@ -6742,6 +6740,7 @@ INT wifi_getNeighboringWiFiStatus(INT radio_index, wifi_neighbor_ap2_t **neighbo
     return RETURN_OK;
 
 output_error:
+    pclose(f);
     free(line);
     free(scan_array);
     return RETURN_ERR;
@@ -7850,6 +7849,72 @@ static int ieee80211_channel_to_frequency(int channel, int *freqMHz)
 
     return 0;
 }
+
+static int get_survey_dump_buf(INT radioIndex, int channel, const char *buf, size_t bufsz)
+{
+    int freqMHz = -1;
+    char cmd[MAX_CMD_SIZE] = {'\0'};
+
+    ieee80211_channel_to_frequency(channel, &freqMHz);
+    if (freqMHz == -1) {
+        wifi_dbg_printf("%s: failed to get channel frequency for channel: %d\n", __func__, channel);
+        return -1;
+    }
+
+    if (sprintf(cmd,"iw dev %s%d survey dump | grep -A5 %d | tr -d '\\t'", RADIO_PREFIX, radioIndex, freqMHz) < 0) {
+        wifi_dbg_printf("%s: failed to build iw dev command for radioIndex=%d freq=%d\n", __FUNCTION__,
+                         radioIndex, freqMHz);
+        return -1;
+    }
+
+    if (_syscmd(cmd, buf, bufsz) == RETURN_ERR) {
+        wifi_dbg_printf("%s: failed to execute '%s' for radioIndex=%d\n", __FUNCTION__, cmd, radioIndex);
+        return -1;
+    }
+
+    return 0;
+}
+
+static int fetch_survey_from_buf(INT radioIndex, const char *buf, wifi_channelStats_t *stats)
+{
+    const char *ptr = buf;
+    char *key = NULL;
+    char *val = NULL;
+    char line[256] = { '\0' };
+
+    while (ptr = get_line_from_str_buf(ptr, line)) {
+        if (strstr(line, "Frequency")) continue;
+
+        key = strtok(line, ":");
+        val = strtok(NULL, " ");
+        wifi_dbg_printf("%s: key='%s' val='%s'\n", __func__, key, val);
+
+        if (!strcmp(key, "noise")) {
+            sscanf(val, "%d", &stats->ch_noise);
+            if (stats->ch_noise == 0) {
+                // Workaround for missing noise information.
+                // Assume -95 for 2.4G and -103 for 5G
+                if (radioIndex == 0) stats->ch_noise = -95;
+                if (radioIndex == 1) stats->ch_noise = -103;
+            }
+        }
+        else if (!strcmp(key, "channel active time")) {
+            sscanf(val, "%llu", &stats->ch_utilization_total);
+        }
+        else if (!strcmp(key, "channel busy time")) {
+            sscanf(val, "%llu", &stats->ch_utilization_busy);
+        }
+        else if (!strcmp(key, "channel receive time")) {
+            sscanf(val, "%llu", &stats->ch_utilization_busy_rx);
+        }
+        else if (!strcmp(key, "channel transmit time")) {
+            sscanf(val, "%llu", &stats->ch_utilization_busy_tx);
+        }
+    };
+
+    return 0;
+}
+
 INT wifi_getRadioChannelStats(INT radioIndex,wifi_channelStats_t *input_output_channelStats_array,INT array_size)
 {
     WIFI_ENTRY_EXIT_DEBUG("Inside %s:%d\n",__func__, __LINE__);
@@ -7905,63 +7970,61 @@ INT wifi_getRadioChannelStats(INT radioIndex,wifi_channelStats_t *input_output_c
         //TODO: ch_radar_noise, ch_max_80211_rssi, ch_non_80211_noise, ch_utilization_busy_self
     }
 #else
-    int freqMHz;
-    FILE *fp = NULL;
-    char command[MAX_CMD_SIZE], output[MAX_BUF_SIZE], *value;
-    wifi_channelStats_t *out=input_output_channelStats_array;
+    ULONG channel = 0;
+    int i;
+    int number_of_channels = array_size;
+    char buf[512];
+    INT ret;
+    wifi_channelStats_t tmp_stats;
 
-    snprintf(command, sizeof(command), "iw dev %s%d survey dump > /tmp/Channel_Stats.txt", RADIO_PREFIX, radioIndex);
-    system(command);
-
-    do
-    {
-        if(!array_size)
-            snprintf(command, sizeof(command), "cat /tmp/Channel_Stats.txt | grep -A5 '\\[in use\\]' | tr -d '\t'");
-        else
-        {
-            ieee80211_channel_to_frequency(out->ch_number, &freqMHz);
-            snprintf(command, sizeof(command), "cat /tmp/Channel_Stats.txt | grep -A5 %d | tr -d '\t'", freqMHz);
+    if (number_of_channels == 0) {
+        if (wifi_getRadioChannel(radioIndex, &channel) != RETURN_OK) {
+            wifi_dbg_printf("%s: cannot get current channel for radioIndex=%d\n", __func__, radioIndex);
+            return RETURN_ERR;
         }
-        if((fp = popen(command, "r")))
-        {
-            fgets(output, MAX_BUF_SIZE, fp);
-            if(!out->ch_number)
-            {
-                strtok_r(output, ":", &value);
-                strtok(value, " ");
-                out->ch_number = ieee80211_frequency_to_channel(atoi(value));
-            }
+        number_of_channels = 1;
+        input_output_channelStats_array[0].ch_number = channel;
+    }
 
-            fgets(output, MAX_BUF_SIZE, fp);
-            strtok_r(output, ":", &value);
-            if(strcmp(output, "noise"))//Statistical information not available for this frequency
-                continue;
-            strtok(value, " ");
-            out->ch_noise = atoi(value);
+    for (i = 0; i < number_of_channels; i++) {
 
-            fgets(output, MAX_BUF_SIZE, fp);
-            strtok_r(output, ":", &value);
-            strtok(value, " ");
-            out->ch_utilization_total = atol(value);//Updating time in ms
+        input_output_channelStats_array[i].ch_noise = 0;
+        input_output_channelStats_array[i].ch_utilization_busy_rx = 0;
+        input_output_channelStats_array[i].ch_utilization_busy_tx = 0;
+        input_output_channelStats_array[i].ch_utilization_busy = 0;
+        input_output_channelStats_array[i].ch_utilization_busy_ext = 0; // XXX: unavailable
+        input_output_channelStats_array[i].ch_utilization_total = 0;
 
-            fgets(output, MAX_BUF_SIZE, fp);
-            strtok_r(output, ":", &value);
-            strtok(value, " ");
-            out->ch_utilization_busy = atol(value);//Updating time in ms
-
-            fgets(output, MAX_BUF_SIZE, fp);
-            strtok_r(output, ":", &value);
-            strtok(value, " ");
-            out->ch_utilization_busy_rx = atol(value);//Updating time in ms
-
-            fgets(output, MAX_BUF_SIZE, fp);
-            strtok_r(output, ":", &value);
-            strtok(value, " ");
-            out->ch_utilization_busy_tx = atol(value);//Updating time in ms
-            //TODO: Fetching other information such as ch_radar_noise, ch_max_80211_rssi, ch_non_80211_noise, ch_utilization, ch_utilization_busy_self, ch_utilization_busy_ext
-	    pclose(fp);
+        memset(buf, 0, sizeof(buf));
+        if (get_survey_dump_buf(radioIndex, input_output_channelStats_array[i].ch_number, buf, sizeof(buf))) {
+            return RETURN_ERR;
         }
-    }while(++out<input_output_channelStats_array+array_size);
+        if (fetch_survey_from_buf(radioIndex, buf, &input_output_channelStats_array[i])) {
+            wifi_dbg_printf("%s: cannot fetch survey from buf for radioIndex=%d\n", __func__, radioIndex);
+            return RETURN_ERR;
+        }
+
+        // XXX: fake missing 'self' counter which is not available in iw survey output
+        //      the 'self' counter (a.k.a 'bss') requires Linux Kernel update
+        input_output_channelStats_array[i].ch_utilization_busy_self = input_output_channelStats_array[i].ch_utilization_busy_rx / 8;
+
+        input_output_channelStats_array[i].ch_utilization_busy_rx *= 1000;
+        input_output_channelStats_array[i].ch_utilization_busy_tx *= 1000;
+        input_output_channelStats_array[i].ch_utilization_busy_self *= 1000;
+        input_output_channelStats_array[i].ch_utilization_busy *= 1000;
+        input_output_channelStats_array[i].ch_utilization_total *= 1000;
+
+        wifi_dbg_printf("%s: ch_number=%d ch_noise=%d total=%llu busy=%llu busy_rx=%llu busy_tx=%llu busy_self=%llu busy_ext=%llu\n",
+                   __func__,
+                   input_output_channelStats_array[i].ch_number,
+                   input_output_channelStats_array[i].ch_noise,
+                   input_output_channelStats_array[i].ch_utilization_total,
+                   input_output_channelStats_array[i].ch_utilization_busy,
+                   input_output_channelStats_array[i].ch_utilization_busy_rx,
+                   input_output_channelStats_array[i].ch_utilization_busy_tx,
+                   input_output_channelStats_array[i].ch_utilization_busy_self,
+                   input_output_channelStats_array[i].ch_utilization_busy_ext);
+    }
 #endif
     WIFI_ENTRY_EXIT_DEBUG("Exiting %s:%d\n",__func__, __LINE__);
     return RETURN_OK;
@@ -8338,8 +8401,111 @@ INT wifi_setRMBeaconRequest(UINT apIndex, CHAR *peer, wifi_BeaconRequest_t *in_r
 
 INT wifi_getRadioChannels(INT radioIndex, wifi_channelMap_t *outputMap, INT outputMapSize)
 {
-    // TODO Implement me!
-    return RETURN_OK;
+    int i;
+    char cmd[256];
+    char channel_numbers_buf[256];
+    char dfs_state_buf[256];
+    char line[256];
+    const char *ptr;
+
+    memset(cmd, 0, sizeof(cmd));
+    memset(channel_numbers_buf, 0, sizeof(channel_numbers_buf));
+    memset(line, 0, sizeof(line));
+    memset(dfs_state_buf, 0, sizeof(dfs_state_buf));
+    memset(outputMap, 0, outputMapSize); // all unused entries should be zero
+
+    if (radioIndex == 0) { // 2.4G - all allowed
+        if (outputMapSize < 11) {
+            wifi_dbg_printf("%s: outputMapSize too small (%d)\n", __FUNCTION__, outputMapSize);
+            return RETURN_ERR;
+        }
+
+        for (i = 0; i < 11; i++) {
+            outputMap[i].ch_number = i + 1;
+            outputMap[i].ch_state = CHAN_STATE_AVAILABLE;
+        }
+
+        return RETURN_OK;
+    }
+
+    if (radioIndex == 1) { // 5G
+//  Example output of iw list:
+//
+//    		Frequencies:
+//		* 5180 MHz [36] (17.0 dBm)
+//		* 5200 MHz [40] (17.0 dBm)
+//		* 5220 MHz [44] (17.0 dBm)
+//		* 5240 MHz [48] (17.0 dBm)
+//		* 5260 MHz [52] (23.0 dBm) (radar detection)
+//		  DFS state: usable (for 78930 sec)
+//		  DFS CAC time: 60000 ms
+//		* 5280 MHz [56] (23.0 dBm) (radar detection)
+//		  DFS state: usable (for 78930 sec)
+//		  DFS CAC time: 60000 ms
+//		* 5300 MHz [60] (23.0 dBm) (radar detection)
+//		  DFS state: usable (for 78930 sec)
+//		  DFS CAC time: 60000 ms
+//		* 5320 MHz [64] (23.0 dBm) (radar detection)
+//		  DFS state: usable (for 78930 sec)
+//		  DFS CAC time: 60000 ms
+//		* 5500 MHz [100] (disabled)
+//		* 5520 MHz [104] (disabled)
+//		* 5540 MHz [108] (disabled)
+//		* 5560 MHz [112] (disabled)
+//
+//		Below command should fetch channel numbers of each enabled channel in 5GHz band:
+        if (sprintf(cmd,"iw list | grep MHz | tr -d '\\t' | grep -v disabled | tr -d '*' | grep '^ 5' | awk '{print $3}' | tr -d '[]'") < 0) {
+            wifi_dbg_printf("%s: failed to build iw list command\n", __FUNCTION__);
+            return RETURN_ERR;
+        }
+
+        if (_syscmd(cmd, channel_numbers_buf, sizeof(channel_numbers_buf)) == RETURN_ERR) {
+            wifi_dbg_printf("%s: failed to execute '%s'\n", __FUNCTION__, cmd);
+            return RETURN_ERR;
+        }
+
+        ptr = channel_numbers_buf;
+        i = 0;
+        while (ptr = get_line_from_str_buf(ptr, line)) {
+            if (i >= outputMapSize) {
+                 wifi_dbg_printf("%s: DFS map size too small\n", __FUNCTION__);
+                 return RETURN_ERR;
+            }
+            sscanf(line, "%d", &outputMap[i].ch_number);
+
+            memset(cmd, 0, sizeof(cmd));
+            // Below command should fetch string for DFS state (usable, available or unavailable)
+            // Example line: "DFS state: usable (for 78930 sec)"
+            if (sprintf(cmd,"iw list | grep -A 2 '\\[%d\\]' | tr -d '\\t' | grep 'DFS state' | awk '{print $3}' | tr -d '\\n'", outputMap[i].ch_number) < 0) {
+                wifi_dbg_printf("%s: failed to build dfs state command\n", __FUNCTION__);
+                return RETURN_ERR;
+            }
+
+            memset(dfs_state_buf, 0, sizeof(dfs_state_buf));
+            if (_syscmd(cmd, dfs_state_buf, sizeof(dfs_state_buf)) == RETURN_ERR) {
+                wifi_dbg_printf("%s: failed to execute '%s'\n", __FUNCTION__, cmd);
+                return RETURN_ERR;
+            }
+
+            wifi_dbg_printf("DFS state = '%s'\n", dfs_state_buf);
+
+            if (!strcmp(dfs_state_buf, "usable")) {
+                outputMap[i].ch_state = CHAN_STATE_DFS_NOP_FINISHED;
+            } else if (!strcmp(dfs_state_buf, "available")) {
+                outputMap[i].ch_state = CHAN_STATE_DFS_CAC_COMPLETED;
+            } else if (!strcmp(dfs_state_buf, "unavailable")) {
+                outputMap[i].ch_state = CHAN_STATE_DFS_NOP_START;
+            } else {
+                outputMap[i].ch_state = CHAN_STATE_AVAILABLE;
+            }
+            i++;
+        }
+
+        return RETURN_OK;
+    }
+
+    wifi_dbg_printf("%s: wrong radio index (%d)\n", __FUNCTION__, radioIndex);
+    return RETURN_ERR;
 }
 
 INT wifi_chan_eventRegister(wifi_chan_eventCB_t eventCb)
@@ -8998,26 +9164,30 @@ INT wifi_getRadioVapInfoMap(wifi_radio_index_t index, wifi_vap_info_map_t *map)
     wifi_secur_list *secur_item;
     int vap_index;
     INT mode;
-    map->num_vaps = 3; // XXX: this is a hack. For both radio let's support 3 vaps for now
-                       //      home, backhaul and onboard.
+    map->num_vaps = 5; // XXX: this is a hack. For both radio let's support 5 vaps for now
+
     WIFI_ENTRY_EXIT_DEBUG("Inside %s:%d\n",__func__, __LINE__);
     printf("Entering %s index = %d", __func__, (int)index);
 
     map->vap_array[index].radio_index = index;
-    for (i = 0; i < 3; i++)
+    for (i = 0; i < 5; i++)
     {
         // XXX: hardcode vap indexes for now (0,1 - home, 2,3 - backhaul 6,7 - onboard)
         if (index == 0)
         {
             if (i == 0) vap_index = 0;
             else if (i == 1) vap_index = 2;
-            else if (i == 2) vap_index = 6;
+            else if (i == 2) vap_index = 4;
+            else if (i == 3) vap_index = 6;
+            else if (i == 4) vap_index = 8;
         }
         else if (index == 1)
         {
             if (i == 0) vap_index = 1;
             else if (i == 1) vap_index = 3;
-            else if (i == 2) vap_index = 7;
+            else if (i == 2) vap_index = 5;
+            else if (i == 3) vap_index = 7;
+            else if (i == 4) vap_index = 9;
         }
         else
         {
@@ -9140,28 +9310,26 @@ INT wifi_createVAP(wifi_radio_index_t index, wifi_vap_info_map_t *map)
     return RETURN_OK;
 }
 
-int parse_channel_list_int_arr(int radioIndex, char *pchannels, wifi_channels_list_t* chlistptr)
+int parse_channel_list_int_arr(char *pchannels, wifi_channels_list_t* chlistptr)
 {
-
-    char *token;
+    char *token, *next;
     const char s[2] = ",";
     int count =0;
 
     /* get the first token */
-    token = strtok(pchannels, s);
+    token = strtok_r(pchannels, s, &next);
 
     /* walk through other tokens */
-    while( token != NULL ) {
-        chlistptr->channels_list[count] = atoi(token);
-        count++;
-        token = strtok(NULL, s);
+    while( token != NULL && count < MAX_CHANNELS) {
+        chlistptr->channels_list[count++] = atoi(token);
+        token = strtok_r(NULL, s, &next);
     }
+
     return count;
 }
 
 static int getRadioCapabilities(int radioIndex, wifi_radio_capabilities_t *rcap)
 {
-
     INT status;
     wifi_channels_list_t *chlistp;
     CHAR output_string[64];
@@ -9188,7 +9356,7 @@ static int getRadioCapabilities(int radioIndex, wifi_radio_capabilities_t *rcap)
          printf("[wifi_hal dbg] : func[%s] line[%d] error_ret[%d] radio_index[%d] output[%s]\n", __FUNCTION__, __LINE__, status, radioIndex, pchannels);
     }
     /* Number of channels and list*/
-    chlistp->num_channels = parse_channel_list_int_arr(radioIndex, pchannels, chlistp);
+    chlistp->num_channels = parse_channel_list_int_arr(pchannels, chlistp);
 
     /* autoChannelSupported */
     /* always ON with wifi_getRadioAutoChannelSupported */
@@ -9283,8 +9451,9 @@ static int getRadioCapabilities(int radioIndex, wifi_radio_capabilities_t *rcap)
 
 INT wifi_getHalCapability(wifi_hal_capability_t *cap)
 {
-    int i = 0, j = 0;
-    INT status;
+    INT status, radioIndex;
+    char cmd[MAX_BUF_SIZE], output[MAX_BUF_SIZE];
+
     WIFI_ENTRY_EXIT_DEBUG("Inside %s:%d\n",__func__, __LINE__);
 
     memset(cap, 0, sizeof(wifi_hal_capability_t));
@@ -9294,17 +9463,19 @@ INT wifi_getHalCapability(wifi_hal_capability_t *cap)
     cap->version.minor = WIFI_HAL_MINOR_VERSION;
 
     /* number of radios platform property */
-    cap->wifi_prop.numRadios = 2; // number of radios
+    snprintf(cmd, sizeof(cmd), "ls -d /sys/class/net/wlan* | wc -l");
+    _syscmd(cmd, output, sizeof(output));
+    cap->wifi_prop.numRadios = atoi(output);
 
-    for(i=0; i < cap->wifi_prop.numRadios; i++)
+    for(radioIndex=0; radioIndex < cap->wifi_prop.numRadios; radioIndex++)
     {
-
-        status = getRadioCapabilities(i, &(cap->wifi_prop.radiocap[i]));
+        status = getRadioCapabilities(radioIndex, &(cap->wifi_prop.radiocap[radioIndex]));
         if (status != 0) {
-            printf("%s: getRadioCapabilities idx = %d\n", __FUNCTION__, i);
+            printf("%s: getRadioCapabilities idx = %d\n", __FUNCTION__, radioIndex);
             return RETURN_ERR;
         }
     }
+    cap->BandSteeringSupported = FALSE;
     WIFI_ENTRY_EXIT_DEBUG("Exiting %s:%d\n",__func__, __LINE__);
     return RETURN_OK;
 }
