@@ -2003,15 +2003,17 @@ INT wifi_setRadioOperatingChannelBandwidth(INT radioIndex, CHAR *output_string) 
             pptr->value="1";
         else if(strcmp(output_string,"80MHz") == 0)
             pptr->value="1";
+        else 
+            pptr->value="0";
 
         pptr++; // added ieee80211n
 
-	if(strcmp(output_string,"80MHz") == 0)
-	{
-	    pptr->name="ieee80211ac";
-	    pptr->value="1";
-	    pptr++; // added ieee80211ac
-	}
+        pptr->name="ieee80211ac";
+        if(strcmp(output_string,"80MHz") == 0)
+            pptr->value="1";
+        else
+            pptr->value="0";
+        pptr++;
     }
 
     for(int i=0; i<=MAX_APS/NUMBER_OF_RADIOS; i++)
@@ -7536,6 +7538,11 @@ INT wifi_getApAssociatedDeviceRxStatsResult(INT radioIndex, mac_address_t *clien
     Netlink nl;
     char if_name[10];
 
+    *output_array_size = sizeof(wifi_associated_dev_rate_info_rx_stats_t);
+
+    if (*output_array_size <= 0)
+        return RETURN_OK;
+
     snprintf(if_name, sizeof(if_name), "%s%d", AP_PREFIX, radioIndex);
     nl.id = initSock80211(&nl);
 
@@ -7672,6 +7679,11 @@ INT wifi_getApAssociatedDeviceTxStatsResult(INT radioIndex, mac_address_t *clien
 #ifdef HAL_NETLINK_IMPL
     Netlink nl;
     char if_name[10];
+
+    *output_array_size = sizeof(wifi_associated_dev_rate_info_tx_stats_t);
+
+    if (*output_array_size <= 0)
+        return RETURN_OK;
 
     snprintf(if_name, sizeof(if_name), "%s%d", AP_PREFIX, radioIndex);
 
@@ -9505,6 +9517,19 @@ INT wifi_getApAssociatedDevice(INT ap_index, mac_address_t *output_deviceMacAddr
 #else
 INT wifi_getApAssociatedDevice(INT ap_index, CHAR *output_buf, INT output_buf_size)
 {
-     return RETURN_OK;
+    char cmd[128];
+    BOOL status = false;
+
+    if(ap_index > MAX_APS)
+        return RETURN_ERR;
+
+    wifi_getApEnable(ap_index,&status);
+    if (!status)
+        return RETURN_OK;
+
+    sprintf(cmd, "hostapd_cli -i %s%d list_sta | tr '\\n' ',' | sed 's/.$//'", AP_PREFIX, ap_index);
+    _syscmd(cmd, output_buf, output_buf_size);
+    
+    return RETURN_OK;
 }
 #endif
