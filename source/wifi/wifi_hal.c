@@ -929,9 +929,16 @@ INT wifi_createInitialConfigFiles()
 // outputs the country code to a max 64 character string
 INT wifi_getRadioCountryCode(INT radioIndex, CHAR *output_string)
 {
-    if (NULL == output_string)
+    char buf[MAX_BUF_SIZE] = {0}, cmd[MAX_CMD_SIZE] = {0}, *value;
+    if(!output_string || !(radioIndex==0 || radioIndex==1))
         return RETURN_ERR;
-    snprintf(output_string, 64, "841");
+
+    sprintf(cmd,"hostapd_cli -i %s%d status driver | grep country | cut -d '=' -f2", AP_PREFIX, radioIndex);
+    _syscmd(cmd, buf, sizeof(buf));
+    if(strlen(buf) > 0)
+        snprintf(output_string, 64, "%s", buf);
+    else
+        return RETURN_ERR;
 
     return RETURN_OK;
 }
@@ -939,6 +946,32 @@ INT wifi_getRadioCountryCode(INT radioIndex, CHAR *output_string)
 INT wifi_setRadioCountryCode(INT radioIndex, CHAR *CountryCode)
 {
     //Set wifi config. Wait for wifi reset to apply
+    char str[MAX_BUF_SIZE]={'\0'};
+    char cmd[MAX_CMD_SIZE]={'\0'};
+    struct params params;
+    char config_file[MAX_BUF_SIZE] = {0};
+
+    WIFI_ENTRY_EXIT_DEBUG("Inside %s:%d\n",__func__, __LINE__);
+    if(NULL == CountryCode || strlen(CountryCode) >= 32 )
+        return RETURN_ERR;
+
+    params.name = "country_code";
+    params.value = CountryCode;
+    sprintf(config_file,"%s%d.conf",CONFIG_PREFIX, radioIndex);
+    int ret = wifi_hostapdWrite(config_file, &params, 1);
+    if (ret) {
+        WIFI_ENTRY_EXIT_DEBUG("Inside %s: wifi_hostapdWrite() return %d\n"
+                ,__func__, ret);
+    }
+
+    ret = wifi_hostapdProcessUpdate(radioIndex, &params, 1);
+    if (ret) {
+        WIFI_ENTRY_EXIT_DEBUG("Inside %s: wifi_hostapdProcessUpdate() return %d\n"
+                ,__func__, ret);
+    }
+    wifi_reloadAp(radioIndex);
+    WIFI_ENTRY_EXIT_DEBUG("Exiting %s:%d\n",__func__, __LINE__);
+
     return RETURN_OK;
 }
 
