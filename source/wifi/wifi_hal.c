@@ -931,7 +931,7 @@ INT wifi_getRadioCountryCode(INT radioIndex, CHAR *output_string)
 {
     if (NULL == output_string)
         return RETURN_ERR;
-    snprintf(output_string, 64, "841");
+    snprintf(output_string, 64, "US");
 
     return RETURN_OK;
 }
@@ -1591,16 +1591,16 @@ INT wifi_getRadioChannelsInUse(INT radioIndex, CHAR *output_string)	//RDKB
 INT wifi_getRadioChannel(INT radioIndex,ULONG *output_ulong)	//RDKB
 {
     char cmd[1024] = {0}, buf[5] = {0};
-    char interface_name[50] = {0};
 
     WIFI_ENTRY_EXIT_DEBUG("Inside %s:%d\n",__func__, __LINE__);
     if (NULL == output_ulong)
         return RETURN_ERR;
 
-    wifi_getApName(radioIndex,interface_name);
-
-    snprintf(cmd, sizeof(cmd), "ls -1 /sys/class/net/%s/device/ieee80211/phy*/device/net/ | xargs -I {} iw dev {} info |grep channel | head -n1 | cut -d ' ' -f2",interface_name);
-    _syscmd(cmd,buf,sizeof(buf));
+    snprintf(cmd, sizeof(cmd),
+        "ls -1 /sys/class/net/%s%d/device/ieee80211/phy*/device/net/ | "
+        "xargs -I {} iw dev {} info | grep channel | head -n1 | "
+        "cut -d ' ' -f2", RADIO_PREFIX, radioIndex);
+    _syscmd(cmd, buf, sizeof(buf));
 
     *output_ulong = (strlen(buf) >= 1)? atol(buf): 0;
     if (*output_ulong <= 0) {
@@ -1910,21 +1910,23 @@ INT wifi_getRadioOperatingChannelBandwidth(INT radioIndex, CHAR *output_string) 
 
     WIFI_ENTRY_EXIT_DEBUG("Inside %s:%d\n",__func__, __LINE__);
     char cmd[1024] = {0}, buf[64] = {0};
-    char interface_name[50] = {0};
     int ret = 0, len=0;
 
-    snprintf(cmd, sizeof(cmd),"iw dev %s%d info | grep 'width' | cut -d  ' ' -f6",AP_PREFIX, radioIndex);
+    snprintf(cmd, sizeof(cmd),
+        "ls -1 /sys/class/net/%s%d/device/ieee80211/phy*/device/net/ | "
+        "xargs -I {} iw dev {} info | grep width | head -n1 | "
+        "cut -d ' ' -f6", RADIO_PREFIX, radioIndex);
+
     ret = _syscmd(cmd, buf, sizeof(buf));
     len = strlen(buf);
-    if((ret != 0) && (len == 0))
+    if((ret != 0) || (len == 0))
     {
          WIFI_ENTRY_EXIT_DEBUG("failed with Command %s %s:%d\n",cmd,__func__, __LINE__);
          return RETURN_ERR;
     }
 
     buf[len-1] = '\0';
-    strcat(buf,"MHz");
-    snprintf(output_string, 64, "%s", buf);
+    snprintf(output_string, 64, "%sMHz", buf);
     WIFI_ENTRY_EXIT_DEBUG("Exiting %s:%d\n",__func__, __LINE__);
 
 #if 0
@@ -3785,7 +3787,7 @@ INT wifi_getApWpaEncryptionMode(INT apIndex, CHAR *output_string)
 
     if(strcmp(buf,"0")==0)
     {
-        printf("wpa_mode is %s ......... \n",buf);
+        printf("%s: wpa_mode is %s ......... \n", __func__, buf);
         snprintf(output_string, 32, "None");
         return RETURN_OK;
     }
@@ -9103,7 +9105,7 @@ INT wifi_getRadioOperatingParameters(wifi_radio_index_t index, wifi_radio_operat
 {
     INT ret;
     char band[128];
-    ULONG lval;
+    ULONG channel;
     BOOL enabled;
     char buf[256];
 
@@ -9124,7 +9126,7 @@ INT wifi_getRadioOperatingParameters(wifi_radio_index_t index, wifi_radio_operat
     if (ret != RETURN_OK)
     {
         printf("%s: cannot get radio band for radio index %d\n", __func__, index);
-        return false;
+        return RETURN_ERR;
     }
 
     if (!strcmp(band, "2.4GHz"))
@@ -9151,20 +9153,20 @@ INT wifi_getRadioOperatingParameters(wifi_radio_index_t index, wifi_radio_operat
     else if (!strcmp(buf, "80MHz")) operationParam->channelWidth = WIFI_CHANNELBANDWIDTH_80MHZ;
     else
     {
-        printf("Unknown HT mode: %s\n", buf);
-        return false;
+        printf("%s: Unknown HT mode: '%s'\n", __func__, buf);
+        operationParam->channelWidth = 0;
     }
 
-    ret = wifi_getRadioChannel(index, &lval);
+    ret = wifi_getRadioChannel(index, &channel);
     if (ret != RETURN_OK)
     {
         printf("%s: Failed to get channel number for radio index %d\n", __func__, index);
-        return false;
+        channel = 0;
     }
-    operationParam->channel = lval;
+    operationParam->channel = channel;
     operationParam->csa_beacon_count = 15; // XXX: hardcoded for now
 
-    operationParam->countryCode = wifi_countrycode_PL; // XXX: hardcoded for now
+    operationParam->countryCode = wifi_countrycode_US; // XXX: hardcoded for now
 
     WIFI_ENTRY_EXIT_DEBUG("Exiting %s:%d\n",__func__, __LINE__);
     return RETURN_OK;
@@ -9182,7 +9184,7 @@ INT wifi_getRadioVapInfoMap(wifi_radio_index_t index, wifi_vap_info_map_t *map)
     map->num_vaps = 5; // XXX: this is a hack. For both radio let's support 5 vaps for now
 
     WIFI_ENTRY_EXIT_DEBUG("Inside %s:%d\n",__func__, __LINE__);
-    printf("Entering %s index = %d", __func__, (int)index);
+    printf("Entering %s index = %d\n", __func__, (int)index);
 
     map->vap_array[index].radio_index = index;
     for (i = 0; i < 5; i++)
@@ -9206,7 +9208,7 @@ INT wifi_getRadioVapInfoMap(wifi_radio_index_t index, wifi_vap_info_map_t *map)
         }
         else
         {
-            printf("Wrong radio index (%d)\n", index);
+            printf("%s: Wrong radio index (%d)\n", __func__, index);
             return RETURN_ERR;
         }
 
@@ -9221,7 +9223,7 @@ INT wifi_getRadioVapInfoMap(wifi_radio_index_t index, wifi_vap_info_map_t *map)
         ret = wifi_getSSIDEnable(vap_index, &enabled);
         if (ret != RETURN_OK)
         {
-            printf("failed to get SSIDEnable for index %d\n", i);
+            printf("%s: failed to get SSIDEnable for index %d\n", __func__, i);
             return RETURN_ERR;
         }
         map->vap_array[i].u.bss_info.enabled = enabled;
@@ -9254,8 +9256,8 @@ INT wifi_getRadioVapInfoMap(wifi_radio_index_t index, wifi_vap_info_map_t *map)
 
         if (!(secur_item = wifi_get_item_by_str(ARRAY_AND_SIZE(map_security), buf)))
         {
-            printf("ssid_index %d: Failed to decode security mode (%s)\n", vap_index, buf);
-            return false;
+            printf("%s: ssid_index %d: Failed to decode security mode (%s)\n", __func__, vap_index, buf);
+            return RETURN_ERR;
         }
         map->vap_array[i].u.bss_info.security.mode = secur_item->key;
 
@@ -9393,7 +9395,6 @@ static int getRadioCapabilities(int radioIndex, wifi_radio_capabilities_t *rcap)
     } else {
         printf("[wifi_hal dbg] : func[%s] line[%d], output [%s]\n", __FUNCTION__, __LINE__, output_string);
     }
-    output_string[strlen(output_string) - 1] = '\0';
     if(!strcmp(output_string,"US")){
         rcap->countrySupported[0] = wifi_countrycode_US;
         rcap->countrySupported[1] = wifi_countrycode_CA;
