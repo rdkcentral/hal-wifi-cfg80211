@@ -4508,17 +4508,40 @@ INT wifi_setApSsidAdvertisementEnable(INT apIndex, BOOL enable)
 //The maximum number of retransmission for a packet. This corresponds to IEEE 802.11 parameter dot11ShortRetryLimit.
 INT wifi_getApRetryLimit(INT apIndex, UINT *output_uint)
 {
-    //get the running status
-    if(!output_uint)
+    char cmd[MAX_BUF_SIZE]={'\0'};
+    char buf[MAX_CMD_SIZE]={'\0'};
+
+    WIFI_ENTRY_EXIT_DEBUG("Inside %s:%d\n",__func__, __LINE__);
+
+    if(output_uint == NULL)
         return RETURN_ERR;
-    *output_uint=16;
+
+    snprintf(cmd, sizeof(cmd),  "iw phy phy%d info | grep 'Retry short limit' | awk '{print $4}' | tr -d '\n'", apIndex);
+    _syscmd(cmd, buf, sizeof(buf));
+
+    *output_uint = atoi(buf);
+
+    WIFI_ENTRY_EXIT_DEBUG("Exiting %s:%d\n",__func__, __LINE__);
     return RETURN_OK;
 }
 
 INT wifi_setApRetryLimit(INT apIndex, UINT number)
 {
-    //apply instantly
-    return RETURN_ERR;
+    char cmd[MAX_BUF_SIZE]={'\0'};
+    char buf[MAX_CMD_SIZE]={'\0'};
+
+    WIFI_ENTRY_EXIT_DEBUG("Inside %s:%d\n", __func__, __LINE__);
+
+    if (number < 1 || number > 31) {
+        WIFI_ENTRY_EXIT_DEBUG("%s Invalid input: %d\n", __func__, number);
+        return RETURN_ERR;
+    }
+
+    snprintf(cmd, sizeof(cmd),  "iw phy phy%d set retry short %d", apIndex, number);
+    _syscmd(cmd, buf, sizeof(buf));
+
+    WIFI_ENTRY_EXIT_DEBUG("Exiting %s:%d\n", __func__, __LINE__);
+    return RETURN_OK;
 }
 
 //Indicates whether this access point supports WiFi Multimedia (WMM) Access Categories (AC).
