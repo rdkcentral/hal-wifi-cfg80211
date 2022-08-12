@@ -8538,7 +8538,8 @@ INT wifi_getRadioBandUtilization (INT radioIndex, INT *output_percentage)
 
 INT wifi_getApAssociatedClientDiagnosticResult(INT apIndex, char *mac_addr, wifi_associated_dev3_t *dev_conn)
 {
-    return RETURN_OK;
+    // TODO Implement me!
+    return RETURN_ERR;
 }
 
 INT wifi_switchBand(char *interface_name,INT radioIndex,char *freqBand)
@@ -9521,8 +9522,10 @@ INT wifi_getApAssociatedDevice(INT ap_index, CHAR *output_buf, INT output_buf_si
     char cmd[128];
     BOOL status = false;
 
-    if(ap_index > MAX_APS)
+    if(ap_index > MAX_APS || output_buf == NULL || output_buf_size <= 0)
         return RETURN_ERR;
+
+    output_buf[0] = '\0';
 
     wifi_getApEnable(ap_index,&status);
     if (!status)
