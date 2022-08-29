@@ -9173,6 +9173,20 @@ INT wifi_getRadioOperatingParameters(wifi_radio_index_t index, wifi_radio_operat
     return RETURN_OK;
 }
 
+static int array_index_to_vap_index(UINT radioIndex, int arrayIndex)
+{
+    if (radioIndex != 0 && radioIndex != 1)
+    {
+        printf("%s: Wrong radio index (%d)\n", __func__, index);
+        return -1;
+    }
+
+    // XXX: hardcode vap indexes for now (0,1 - home, 2,3 - backhaul 6,7 - onboard)
+    // XXX : assumed radioIndex for 2.4 is 0 radioIndex for 5G is 1
+
+    return (arrayIndex * 2) + radioIndex;
+}
+
 INT wifi_getRadioVapInfoMap(wifi_radio_index_t index, wifi_vap_info_map_t *map)
 {
     INT ret;
@@ -9190,26 +9204,9 @@ INT wifi_getRadioVapInfoMap(wifi_radio_index_t index, wifi_vap_info_map_t *map)
     map->vap_array[index].radio_index = index;
     for (i = 0; i < 5; i++)
     {
-        // XXX: hardcode vap indexes for now (0,1 - home, 2,3 - backhaul 6,7 - onboard)
-        if (index == 0)
-        {
-            if (i == 0) vap_index = 0;
-            else if (i == 1) vap_index = 2;
-            else if (i == 2) vap_index = 4;
-            else if (i == 3) vap_index = 6;
-            else if (i == 4) vap_index = 8;
-        }
-        else if (index == 1)
-        {
-            if (i == 0) vap_index = 1;
-            else if (i == 1) vap_index = 3;
-            else if (i == 2) vap_index = 5;
-            else if (i == 3) vap_index = 7;
-            else if (i == 4) vap_index = 9;
-        }
-        else
-        {
-            printf("%s: Wrong radio index (%d)\n", __func__, index);
+        vap_index = array_index_to_vap_index(index, i);
+        if (vap_index < 0)
+	{
             return RETURN_ERR;
         }
 
@@ -9470,6 +9467,9 @@ INT wifi_getHalCapability(wifi_hal_capability_t *cap)
 {
     INT status, radioIndex;
     char cmd[MAX_BUF_SIZE], output[MAX_BUF_SIZE];
+    int iter = 0;
+    unsigned int j;
+    wifi_interface_name_idex_map_t *iface_info;
 
     WIFI_ENTRY_EXIT_DEBUG("Inside %s:%d\n",__func__, __LINE__);
 
@@ -9491,7 +9491,35 @@ INT wifi_getHalCapability(wifi_hal_capability_t *cap)
             printf("%s: getRadioCapabilities idx = %d\n", __FUNCTION__, radioIndex);
             return RETURN_ERR;
         }
+
+        for (j = 0; j < cap->wifi_prop.radiocap[radioIndex].maxNumberVAPs; j++)
+        {
+            if (iter >= MAX_NUM_RADIOS * MAX_NUM_VAP_PER_RADIO)
+            {
+                 printf("%s: to many vaps for index map (%d)\n", __func__, iter);
+                 return RETURN_ERR;
+            }
+            iface_info = &cap->wifi_prop.interface_map[iter];
+            iface_info->phy_index = radioIndex; // XXX: parse phyX index instead
+            iface_info->rdk_radio_index = radioIndex;
+            memset(output, 0, sizeof(output));
+            if (wifi_getRadioIfName(radioIndex, output) == RETURN_OK)
+            {
+                strncpy(iface_info->interface_name, output, sizeof(iface_info->interface_name) - 1);
+            }
+            // TODO: bridge name
+            // TODO: vlan id
+            // TODO: primary
+            iface_info->index = array_index_to_vap_index(radioIndex, j);
+            memset(output, 0, sizeof(output));
+            if (iface_info >= 0 && wifi_getApName(iface_info->index, output) == RETURN_OK)
+            {
+                 strncpy(iface_info->vap_name, output, sizeof(iface_info->vap_name) - 1);
+            }
+	    iter++;
+        }
     }
+
     cap->BandSteeringSupported = FALSE;
     WIFI_ENTRY_EXIT_DEBUG("Exiting %s:%d\n",__func__, __LINE__);
     return RETURN_OK;
