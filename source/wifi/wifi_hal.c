@@ -4005,9 +4005,20 @@ INT wifi_getApAclDevices(INT apIndex, CHAR *macArray, UINT buf_size)
 {
     char cmd[MAX_CMD_SIZE]={'\0'};
     int ret = 0;
+    BOOL apEnabled = false;
 
-    sprintf(cmd, "hostapd_cli -i %s%d accept_acl SHOW | awk '{print $1}'", AP_PREFIX,apIndex);
+    wifi_getApEnable(apIndex, &apEnabled);
+    if (apEnabled)
+    {
+        snprintf(cmd, sizeof(cmd), "hostapd_cli -i %s%d accept_acl SHOW | awk '{print $1}'", AP_PREFIX, apIndex);
+    }
+    else
+    {
+        snprintf(cmd, sizeof(cmd), "cat %s%d", ACL_PREFIX, apIndex);
+    }
+
     ret = _syscmd(cmd,macArray,buf_size);
+
     if (ret != 0)
         return RETURN_ERR;
 
@@ -4034,15 +4045,19 @@ INT wifi_addApAclDevice(INT apIndex, CHAR *DeviceMacAddress)
 {
     char cmd[MAX_CMD_SIZE]={'\0'};
     char buf[MAX_BUF_SIZE]={'\0'};
+    BOOL apEnabled = false;
 
-#if 0
-    sprintf(cmd, "hostapd_cli -i %s%d accept_acl ADD_MAC %s", AP_PREFIX,apIndex,DeviceMacAddress);
-    if(_syscmd(cmd,buf,sizeof(buf)))
-        return RETURN_ERR;
-#endif
     sprintf(cmd, "echo '%s' >> %s%d", DeviceMacAddress, ACL_PREFIX, apIndex);
     if(_syscmd(cmd,buf,sizeof(buf)))
         return RETURN_ERR;
+
+    wifi_getApEnable(apIndex, &apEnabled);
+    if (apEnabled)
+    {
+        sprintf(cmd, "hostapd_cli -i %s%d accept_acl ADD_MAC %s", AP_PREFIX,apIndex,DeviceMacAddress);
+        if(_syscmd(cmd,buf,sizeof(buf)))
+            return RETURN_ERR;
+    }
 
     return RETURN_OK;
 }
@@ -4053,16 +4068,19 @@ INT wifi_delApAclDevice(INT apIndex, CHAR *DeviceMacAddress)
 {
     char cmd[MAX_CMD_SIZE]={'\0'};
     char buf[MAX_BUF_SIZE]={'\0'};
+    BOOL apEnabled = false;
 
-#if 0
-    sprintf(cmd, "hostapd_cli -i %s%d accept_acl DEL_MAC %s", AP_PREFIX,apIndex,DeviceMacAddress);
-    if(_syscmd(cmd,buf,sizeof(buf)))
-        return RETURN_ERR;
-
-#endif
     sprintf(cmd, "sed -i '/%s/d' %s%d ", DeviceMacAddress, ACL_PREFIX, apIndex);
     if(_syscmd(cmd,buf,sizeof(buf)))
         return RETURN_ERR;
+
+    wifi_getApEnable(apIndex, &apEnabled);
+    if (apEnabled)
+    {
+        sprintf(cmd, "hostapd_cli -i %s%d accept_acl DEL_MAC %s", AP_PREFIX,apIndex,DeviceMacAddress);
+        if(_syscmd(cmd,buf,sizeof(buf)))
+            return RETURN_ERR;
+    }
 
     return RETURN_OK;
 }
@@ -4070,10 +4088,31 @@ INT wifi_delApAclDevice(INT apIndex, CHAR *DeviceMacAddress)
 // outputs the number of devices in the filter list
 INT wifi_getApAclDeviceNum(INT apIndex, UINT *output_uint)
 {
+    char cmd[MAX_CMD_SIZE] = {'\0'};
+    char buf[4] = {'\0'};
+    int ret = 0;
+    BOOL apEnabled = false;
+
     if (NULL == output_uint)
         return RETURN_ERR;
-    *output_uint = 0;
-    return RETURN_ERR;
+
+    wifi_getApEnable(apIndex, &apEnabled);
+    if (apEnabled)
+    {
+        snprintf(cmd, sizeof(cmd), "hostapd_cli -i %s%d accept_acl SHOW | wc -l", AP_PREFIX, apIndex);
+    }
+    else
+    {
+        snprintf(cmd, sizeof(cmd), "cat %s%d | wc -l", ACL_PREFIX, apIndex);
+    }
+
+    ret = _syscmd(cmd, buf, sizeof(buf));
+
+    if (ret != 0)
+        return RETURN_ERR;
+
+    *output_uint = atoi(buf);
+    return RETURN_OK;
 }
 
 INT apply_rules(INT apIndex, CHAR *client_mac,CHAR *action,CHAR *interface)
@@ -7424,24 +7463,27 @@ INT wifi_steering_eventUnregister(void)
 
 INT wifi_delApAclDevices(INT apIndex)
 {
-#if 0
     char cmd[MAX_BUF_SIZE] = {0};
     char buf[MAX_BUF_SIZE] = {0};
-
-   /* Not reset proof solution  */
-   snprintf(cmd, sizeof(cmd), "hostapd_cli -i %s%d accept_acl CLEAR", AP_PREFIX, apIndex);
-    if(_syscmd(cmd,buf,sizeof(buf)))
-        return RETURN_ERR;
-#endif
     char fname[100];
     FILE *fp;
+    BOOL apEnabled = false;
+
 
     snprintf(fname, sizeof(fname), "%s%d", ACL_PREFIX, apIndex);
     fp = fopen(fname, "w");
     if (!fp) {
-            return RETURN_ERR;
+        return RETURN_ERR;
     }
     fclose(fp);
+
+    wifi_getApEnable(apIndex, &apEnabled);
+    if (apEnabled)
+    {
+        snprintf(cmd, sizeof(cmd), "hostapd_cli -i %s%d accept_acl CLEAR", AP_PREFIX, apIndex);
+        if(_syscmd(cmd,buf,sizeof(buf)))
+            return RETURN_ERR;
+    }
 
     return RETURN_OK;
 }
