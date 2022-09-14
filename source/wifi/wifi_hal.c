@@ -9409,6 +9409,7 @@ static int getRadioCapabilities(int radioIndex, wifi_radio_capabilities_t *rcap)
 
     /* possible number of radio channels */
     status = wifi_getRadioPossibleChannels(radioIndex, pchannels);
+    if (status != RETURN_OK)
     {
          printf("[wifi_hal dbg] : func[%s] line[%d] error_ret[%d] radio_index[%d] output[%s]\n", __FUNCTION__, __LINE__, status, radioIndex, pchannels);
     }
@@ -9429,12 +9430,12 @@ static int getRadioCapabilities(int radioIndex, wifi_radio_capabilities_t *rcap)
     /* Supported Country List*/
     memset(output_string, 0, sizeof(output_string));
     status = wifi_getRadioCountryCode(radioIndex, output_string);
-    if( status != 0 ) {
+    if (status != RETURN_OK)
+    {
         printf("[wifi_hal dbg] : func[%s] line[%d] error_ret[%d] radio_index[%d] output[%s]\n", __FUNCTION__, __LINE__, status, radioIndex, output_string);
         return RETURN_ERR;
-    } else {
-        printf("[wifi_hal dbg] : func[%s] line[%d], output [%s]\n", __FUNCTION__, __LINE__, output_string);
     }
+
     if(!strcmp(output_string,"US")){
         rcap->countrySupported[0] = wifi_countrycode_US;
         rcap->countrySupported[1] = wifi_countrycode_CA;
