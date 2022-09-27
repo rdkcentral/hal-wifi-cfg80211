@@ -9335,6 +9335,7 @@ static int getRadioCapabilities(int radioIndex, wifi_radio_capabilities_t *rcap)
         return RETURN_ERR;
     }
 
+    rcap->index = radioIndex;
     rcap->numSupportedFreqBand = 1;
     if (1 == radioIndex)
       rcap->band[0] = WIFI_FREQUENCY_5_BAND;
