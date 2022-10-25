@@ -9177,6 +9177,7 @@ INT wifi_getRadioVapInfoMap(wifi_radio_index_t index, wifi_vap_info_map_t *map)
     int vap_index;
     INT mode;
     map->num_vaps = 5; // XXX: this is a hack. For both radio let's support 5 vaps for now
+    ULONG lval;
 
     WIFI_ENTRY_EXIT_DEBUG("Inside %s:%d\n",__func__, __LINE__);
     printf("Entering %s index = %d\n", __func__, (int)index);
@@ -9193,6 +9194,7 @@ INT wifi_getRadioVapInfoMap(wifi_radio_index_t index, wifi_vap_info_map_t *map)
         strncpy(map->vap_array[i].bridge_name, "brlan0", sizeof(map->vap_array[i].bridge_name) - 1);
 
         map->vap_array[i].vap_index = vap_index;
+        map->vap_array[i].vap_mode = wifi_vap_mode_ap;
 
         memset(buf, 0, sizeof(buf));
         wifi_getApName(vap_index, buf); // XXX: error handling
@@ -9252,16 +9254,123 @@ INT wifi_getRadioVapInfoMap(wifi_radio_index_t index, wifi_vap_info_map_t *map)
         wifi_getApIsolationEnable(vap_index, &enabled);
         map->vap_array[i].u.bss_info.isolation = enabled;
     }
+#ifdef _TURRIS_EXTENDER_
+    // vap indexes for bhaul-sta
+    map->num_vaps = 6;
+
+    if (index == 0) vap_index = 10;
+    else if (index == 1) vap_index = 11;
+
+    memset(buf, 0, sizeof(buf));
+    ret = wifi_getSTAName(vap_index, buf);
+    if (ret != RETURN_OK || strlen(buf) == 0)
+    {
+        printf("%s: cannot get sta name for index %d\n", __func__, vap_index);
+    }
+    else strncpy(map->vap_array[5].vap_name, buf, sizeof(map->vap_array[5].vap_name) - 1);
+
+    map->vap_array[5].vap_index = vap_index;
+    map->vap_array[5].vap_mode = wifi_vap_mode_sta;
+
+    ret = wifi_getSTAEnabled(vap_index, &enabled);
+    if (ret != RETURN_OK)
+    {
+        printf("%s: failed to get STAEnabled for index %d\n", __func__, vap_index);
+    }
+    else map->vap_array[5].u.sta_info.enabled = enabled;
+
+    memset(buf, 0, sizeof(buf));
+    ret = wifi_getSTASSID(vap_index, buf);
+    if (ret != RETURN_OK || strlen(buf) == 0)
+    {
+        printf("%s: failed to get STA SSID for index %d\n", __func__, vap_index);
+    }
+    else strncpy(map->vap_array[5].u.sta_info.ssid, buf, sizeof(map->vap_array[5].u.sta_info.ssid) - 1);
+
+    memset(buf, 0, sizeof(buf));
+    ret = wifi_getSTABSSID(vap_index, buf);
+    if (ret != RETURN_OK || strlen(buf) == 0)
+    {
+        printf("%s: failed to get STA BSSID for index %d\n", __func__, vap_index);
+    }
+    else
+    {
+        sscanf(buf, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
+            &map->vap_array[i].u.sta_info.bssid[0],
+            &map->vap_array[i].u.sta_info.bssid[1],
+            &map->vap_array[i].u.sta_info.bssid[2],
+            &map->vap_array[i].u.sta_info.bssid[3],
+            &map->vap_array[i].u.sta_info.bssid[4],
+            &map->vap_array[i].u.sta_info.bssid[5]); // XXX: handle error
+    }
+
+    memset(buf, 0, sizeof(buf));
+    ret = wifi_getSTAMAC(vap_index, buf);
+    if (ret != RETURN_OK || strlen(buf) == 0)
+    {
+        printf("%s: failed to get STA MAC for index %d\n", __func__, vap_index);
+    }
+    else
+    {
+        sscanf(buf, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
+            &map->vap_array[i].u.sta_info.mac[0],
+            &map->vap_array[i].u.sta_info.mac[1],
+            &map->vap_array[i].u.sta_info.mac[2],
+            &map->vap_array[i].u.sta_info.mac[3],
+            &map->vap_array[i].u.sta_info.mac[4],
+            &map->vap_array[i].u.sta_info.mac[5]); // XXX: handle error
+    }
+
+    ret = wifi_getRadioChannel(index, &lval);
+    if (ret != RETURN_OK)
+    {
+        printf("%s: Failed to get channel from radio idx %d for index %d\n", __func__, index, vap_index);
+    }
+    else map->vap_array[5].u.sta_info.scan_params.channel.channel = lval;
+
+    if (strlen(map->vap_array[5].u.sta_info.ssid))
+    {
+        BOOL out_scan_cur_freq;
+        int out_array_size = 30;
+        wifi_sta_network_t * out_staNetworks_array = (wifi_sta_network_t *) calloc(out_array_size, sizeof(wifi_sta_network_t));
+        ret = wifi_getSTANetworks(vap_index, &out_staNetworks_array, out_array_size, &out_scan_cur_freq);
+        if (ret != RETURN_OK)
+        {
+            printf("%s: Failed to get STA (credentials) for index %d\n", __func__, vap_index);
+        }
+        else
+        {
+            wifi_sta_network_t * staNetwork = out_staNetworks_array;
+            map->vap_array[5].u.sta_info.security.u.key.type = wifi_security_key_type_psk;
+            strncpy(map->vap_array[5].u.sta_info.security.u.key.key, staNetwork->psk, sizeof(map->vap_array[5].u.sta_info.security.u.key.key) - 1); 
+
+            if (!strcmp(staNetwork->proto, "WPA RSN"))
+            {
+                map->vap_array[5].u.sta_info.security.mode = wifi_security_mode_wpa_wpa2_personal;
+            }
+            else if (!strcmp(staNetwork->proto, "RSN"))
+            {
+                map->vap_array[5].u.sta_info.security.mode = wifi_security_mode_wpa2_personal;
+            }
+            else if (!strcmp(staNetwork->proto, "WPA"))
+            {
+                map->vap_array[5].u.sta_info.security.mode = wifi_security_mode_wpa_personal;
+            }
+            map->vap_array[5].u.sta_info.security.encr = wifi_encryption_tkip;
+        }
+    }
+#endif
     WIFI_ENTRY_EXIT_DEBUG("Exiting %s:%d\n",__func__, __LINE__);
     return RETURN_OK;
 }
 
 INT wifi_createVAP(wifi_radio_index_t index, wifi_vap_info_map_t *map)
 {
-    unsigned int i;
+    unsigned int i, j;
     wifi_vap_info_t *vap_info = NULL;
     int acl_mode;
     char *sec_str = NULL;
+    wifi_sta_network_t * sta = (wifi_sta_network_t *) calloc(1,sizeof(wifi_sta_network_t));
 
     WIFI_ENTRY_EXIT_DEBUG("Inside %s:%d\n",__func__, __LINE__);
     printf("Entering %s index = %d\n", __func__, (int)index);
@@ -9270,37 +9379,74 @@ INT wifi_createVAP(wifi_radio_index_t index, wifi_vap_info_map_t *map)
         vap_info = &map->vap_array[i];
         printf("Create VAP for ssid_index=%d (vap_num=%d)\n", vap_info->vap_index, i);
 
-        if (vap_info->u.bss_info.mac_filter_enable == false) acl_mode = 0;
-        else
+        if (vap_info->vap_mode == wifi_vap_mode_ap)
         {
-            if (vap_info->u.bss_info.mac_filter_mode == wifi_mac_filter_mode_black_list) acl_mode = 2;
-            else acl_mode = 1;
-        }
-        wifi_setApMacAddressControlMode(vap_info->vap_index, acl_mode); // XXX: handle errors
-        wifi_setApSsidAdvertisementEnable(vap_info->vap_index, vap_info->u.bss_info.showSsid); // XXX: handle errors
-        wifi_setSSIDName(vap_info->vap_index, vap_info->u.bss_info.ssid); // XXX: handle errors
+            if (vap_info->u.bss_info.mac_filter_enable == false) acl_mode = 0;
+            else
+            {
+                if (vap_info->u.bss_info.mac_filter_mode == wifi_mac_filter_mode_black_list) acl_mode = 2;
+                else acl_mode = 1;
+            }
+            wifi_setApMacAddressControlMode(vap_info->vap_index, acl_mode); // XXX: handle errors
+            wifi_setApSsidAdvertisementEnable(vap_info->vap_index, vap_info->u.bss_info.showSsid); // XXX: handle errors
+            wifi_setSSIDName(vap_info->vap_index, vap_info->u.bss_info.ssid); // XXX: handle errors
 
-        sec_str = wifi_get_str_by_key(ARRAY_AND_SIZE(map_security), vap_info->u.bss_info.security.mode);
-        if (sec_str)
+            sec_str = wifi_get_str_by_key(ARRAY_AND_SIZE(map_security), vap_info->u.bss_info.security.mode);
+            if (sec_str)
+            {
+                wifi_setApSecurityModeEnabled(vap_info->vap_index, sec_str); // XXX: handle errors
+            }
+            else
+            {
+                printf("Cannot map security mode: %d\n", (int)vap_info->u.bss_info.security.mode);
+            }
+
+            wifi_setApSecurityKeyPassphrase(vap_info->vap_index, vap_info->u.bss_info.security.u.key.key); // XXX: handle errors, handle radius
+            wifi_setApIsolationEnable(vap_info->vap_index, vap_info->u.bss_info.isolation);
+
+            wifi_setNeighborReportActivation(vap_info->vap_index, vap_info->u.bss_info.nbrReportActivated); // XXX: handle errors
+            wifi_setBSSTransitionActivation(vap_info->vap_index, vap_info->u.bss_info.bssTransitionActivated); // XXX: handle errors
+
+            printf("Calling wifi_applySSIDSettings for index: %d\n", vap_info->vap_index);
+
+            wifi_setSSIDEnable(vap_info->vap_index, vap_info->u.bss_info.enabled); // XXX: handle errors
+            wifi_applySSIDSettings(vap_info->vap_index); // XXX: handle errors, don't call if no changes.
+        }
+#ifdef _TURRIS_EXTENDER_
+        else if (vap_info->vap_mode == wifi_vap_mode_sta)
         {
-            wifi_setApSecurityModeEnabled(vap_info->vap_index, sec_str); // XXX: handle errors
+            wifi_setSTAEnabled(vap_info->vap_index, vap_info->u.sta_info.enabled);
+
+            sprintf(sta->ssid, vap_info->u.sta_info.ssid);
+            for (j=0; j<sizeof(sta->bssid); j++) sta->bssid[j] = vap_info->u.sta_info.bssid[j];
+
+            if (vap_info->u.sta_info.security.mode == wifi_security_mode_wpa_wpa2_personal)
+            {
+                sprintf(sta->pairwise, "CCMP TKIP");
+                sprintf(sta->proto, "WPA RSN");
+            }
+            else if (vap_info->u.sta_info.security.mode == wifi_security_mode_wpa2_personal)
+            {
+                sprintf(sta->pairwise, "CCMP");
+                sprintf(sta->proto, "RSN");
+            }
+            else if (vap_info->u.sta_info.security.mode == wifi_security_mode_wpa_personal)
+            {
+                sprintf(sta->pairwise, "TKIP");
+                sprintf(sta->proto, "WPA");
+            }
+            else
+            {
+                sprintf(sta->pairwise, "CCMP");
+                sprintf(sta->proto, "RSN");
+            }
+            if (vap_info->u.sta_info.security.u.key.type == wifi_security_key_type_psk) sprintf(sta->key_mgmt, "WPA-PSK");
+            sprintf(sta->psk, vap_info->u.sta_info.security.u.key.key);
+            wifi_setSTANetworks(vap_info->vap_index, &sta, 1, false);
         }
-        else
-        {
-            printf("Cannot map security mode: %d\n", (int)vap_info->u.bss_info.security.mode);
-        }
-
-        wifi_setApSecurityKeyPassphrase(vap_info->vap_index, vap_info->u.bss_info.security.u.key.key); // XXX: handle errors, handle radius
-        wifi_setApIsolationEnable(vap_info->vap_index, vap_info->u.bss_info.isolation);
-
-        wifi_setNeighborReportActivation(vap_info->vap_index, vap_info->u.bss_info.nbrReportActivated); // XXX: handle errors
-        wifi_setBSSTransitionActivation(vap_info->vap_index, vap_info->u.bss_info.bssTransitionActivated); // XXX: handle errors
-
-        printf("Calling wifi_applySSIDSettings for index: %d\n", vap_info->vap_index);
-
-        wifi_setSSIDEnable(vap_info->vap_index, vap_info->u.bss_info.enabled); // XXX: handle errors
-        wifi_applySSIDSettings(vap_info->vap_index); // XXX: handle errors, don't call if no changes.
+#endif
     }
+    free(sta);
     WIFI_ENTRY_EXIT_DEBUG("Exiting %s:%d\n",__func__, __LINE__);
     return RETURN_OK;
 }
@@ -9494,11 +9640,16 @@ INT wifi_getHalCapability(wifi_hal_capability_t *cap)
             // TODO: primary
             iface_info->index = array_index_to_vap_index(radioIndex, j);
             memset(output, 0, sizeof(output));
-            if (iface_info >= 0 && wifi_getApName(iface_info->index, output) == RETURN_OK)
+            if (iface_info >= 0 && (iface_info->index < 10 && wifi_getApName(iface_info->index, output) == RETURN_OK)
+#ifdef _TURRIS_EXTENDER_
+                                || (wifi_getSTAName(iface_info->index, output) == RETURN_OK)
+#endif
+            )
             {
                  strncpy(iface_info->vap_name, output, sizeof(iface_info->vap_name) - 1);
             }
-	    iter++;
+            iter++;
+
         }
     }
 
