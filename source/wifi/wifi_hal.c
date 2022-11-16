@@ -9253,6 +9253,9 @@ INT wifi_getRadioVapInfoMap(wifi_radio_index_t index, wifi_vap_info_map_t *map)
 
         wifi_getApIsolationEnable(vap_index, &enabled);
         map->vap_array[i].u.bss_info.isolation = enabled;
+
+       /* mcast2ucast - TBD */
+       map->vap_array[i].u.bss_info.mcast2ucast = false;
     }
 #ifdef _TURRIS_EXTENDER_
     // vap indexes for bhaul-sta
@@ -9511,6 +9514,9 @@ static int getRadioCapabilities(int radioIndex, wifi_radio_capabilities_t *rcap)
 
     /* zeroDFSSupported - TBD */
     rcap->zeroDFSSupported = FALSE;
+
+    /* mcast2ucastSupported - TBD */
+    rcap->mcast2ucastSupported = FALSE;
 
     /* Supported Country List*/
     memset(output_string, 0, sizeof(output_string));
