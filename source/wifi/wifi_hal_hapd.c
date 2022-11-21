@@ -196,7 +196,7 @@ int hapd_read_cfg(hapd_cfg_t *cfg, const char *filename)
     size_t len = 0;
     ssize_t nread;
 
-    DBG("Hapd: Parse configuration '%s'\n", filename);
+    // DBG("Hapd: Parse configuration '%s'\n", filename);
     stream = fopen(filename, "r");
     if (stream == NULL)
     {

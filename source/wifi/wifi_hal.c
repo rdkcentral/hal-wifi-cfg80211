@@ -416,16 +416,15 @@ static int _syscmd(char *cmd, char *retBuf, int retBufSize)
 
 static int wifi_hostapdCheck(int apIndex)
 {
+    char fname[MAX_BUF_SIZE];
+
     if (apIndex >= MAX_APS)
         return RETURN_ERR;
 
-    if (!hapd_conf[apIndex].valid)
-    {
-        char fname[MAX_BUF_SIZE];
-        snprintf(fname, sizeof(fname), "%s%d.conf", CONFIG_PREFIX, apIndex);
-        return hapd_read_cfg(hapd_conf + apIndex, fname);
-    }
-    return RETURN_OK;
+    // TODO: verify if data is consistent with configuration file content,
+    // then no need to read again (note potential opensync / wifiagent race).
+    snprintf(fname, sizeof(fname), "%s%d.conf", CONFIG_PREFIX, apIndex);
+    return hapd_read_cfg(hapd_conf + apIndex, fname);
 }
 
 static int wifi_hostapdRead(int apIndex, char *param, char *output, int outputSize)
