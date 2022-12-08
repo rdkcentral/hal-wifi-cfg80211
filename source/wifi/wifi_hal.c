@@ -4257,7 +4257,7 @@ INT wifi_setApMacAddressControlMode(INT apIndex, INT filterMode)
     sprintf(buf, "%d", filterMode);
     list[0].value = buf ;
 
-    if (filterMode == 1 || filterMode == 2) {//TODO: check for filterMode(2)
+    if (filterMode == 0 || filterMode == 1) {//TODO: check for filterMode(2)
         sprintf(acl_file,"%s%d",ACL_PREFIX,apIndex);
         list[1].name = "accept_mac_file";
         list[1].value = acl_file;
@@ -9410,7 +9410,7 @@ INT wifi_createVAP(wifi_radio_index_t index, wifi_vap_info_map_t *map)
             if (vap_info->u.bss_info.mac_filter_enable == false) acl_mode = 0;
             else
             {
-                if (vap_info->u.bss_info.mac_filter_mode == wifi_mac_filter_mode_black_list) acl_mode = 2;
+                if (vap_info->u.bss_info.mac_filter_mode == wifi_mac_filter_mode_black_list) acl_mode = 0;
                 else acl_mode = 1;
             }
             wifi_setApMacAddressControlMode(vap_info->vap_index, acl_mode); // XXX: handle errors
