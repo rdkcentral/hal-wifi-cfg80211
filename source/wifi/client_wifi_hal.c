@@ -333,9 +333,9 @@ INT wifi_getSTAName(INT apIndex, CHAR *output_string)
 {
     if (NULL == output_string)
         return RETURN_ERR;
-    if(apIndex == 0)
+    if (apIndex == 10)
         snprintf(output_string, 16, "bhaul-sta-24");
-    else
+    else if (apIndex == 11)
         snprintf(output_string, 16, "bhaul-sta-50");
 
     return RETURN_OK;
@@ -447,13 +447,13 @@ static int init_client_wpa()
     }
 
     for (s = 0; s < snum; s++) {
-        ret = wifi_getSTAName(s, ssid_ifname);
+        ret = wifi_getSTAName(s+10, ssid_ifname);
         if (ret != RETURN_OK)
         {   
             return RETURN_ERR;
         }
         sprintf(wpa_ctrl[s].sockpath, "%s%s", SOCK_PREFIX, ssid_ifname);
-        wpa_ctrl[s].ssid_index = s;
+        wpa_ctrl[s].ssid_index = s+10;
         printf("Opening ctrl for %s\n", ssid_ifname);
         if (ctrl_enable(&wpa_ctrl[s]))
         {
@@ -687,8 +687,8 @@ INT wifi_setSTAEnabled(INT ssidIndex, BOOL enable)
     }
     else
     {
-         sprintf(cmd, "wpa_cli -g/var/run/wpa_supplicant-global -i global interface_remove  %s", ssid_ifname);
-         ret = _syscmd(cmd, out, 64);
+        sprintf(cmd, "wpa_cli -g/var/run/wpa_supplicant-global -i global interface_remove  %s", ssid_ifname);
+        ret = _syscmd(cmd, out, 64);
     }
 
     return ret == 0 ? RETURN_OK : RETURN_ERR;
