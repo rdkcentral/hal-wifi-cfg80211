@@ -7839,7 +7839,7 @@ static int ieee80211_channel_to_frequency(int channel, int *freqMHz)
     return 0;
 }
 
-static int get_survey_dump_buf(INT radioIndex, int channel, const char *buf, size_t bufsz)
+static int get_survey_dump_buf(INT radioIndex, int channel, char *buf, size_t bufsz)
 {
     int freqMHz = -1;
     char cmd[MAX_CMD_SIZE] = {'\0'};
