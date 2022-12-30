@@ -7405,6 +7405,8 @@ INT wifi_delApAclDevices(INT apIndex)
     FILE *fp;
     BOOL apEnabled = false;
 
+    if(apIndex < 0 || apIndex >= MAX_APS)
+        return RETURN_ERR;
 
     snprintf(fname, sizeof(fname), "%s%d", ACL_PREFIX, apIndex);
     fp = fopen(fname, "w");
@@ -9087,6 +9089,13 @@ int main(int argc,char **argv)
                 hapd_print_cfg(&cfg);
             }
         }
+    }
+
+    if (strstr(argv[1], "wifi_delApAclDevices") != NULL)
+    {
+         if(wifi_delApAclDevices(index) != RETURN_OK)
+             printf("Error returned\n");
+         return 0;
     }
 
     WIFI_ENTRY_EXIT_DEBUG("Exiting %s:%d\n",__func__, __LINE__);
