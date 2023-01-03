@@ -4431,7 +4431,7 @@ INT wifi_getApEnable(INT apIndex, BOOL *output_bool)
 
     if((apIndex >= 0) && (apIndex < MAX_APS))//Handling 6 APs
     {
-        sprintf(cmd, "%s%s%d%s", "ifconfig ", AP_PREFIX, apIndex, " | grep UP");
+        sprintf(cmd, "%s%s%d%s", "hostapd_cli -i", AP_PREFIX, apIndex, " ping &> /dev/null");
         *output_bool = _syscmd(cmd,buf,sizeof(buf))?0:1;
     }
 
