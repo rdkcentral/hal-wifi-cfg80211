@@ -168,6 +168,8 @@ typedef enum
 
 #define WIFI_ITEM_STR(key, str)        {0, sizeof(str)-1, (int)key, (intptr_t)str}
 
+const char *country_codeMap[] = { "AC","AD","AE","AF","AG","AI","AL","AM","AN","AO","AQ","AR","AS","AT","AU","AW","AZ","BA","BB","BD","BE","BF","BG","BH","BI","BJ","BM","BN","BO","BR","BS","BT","BV","BW","BY","BZ","CA","CC","CD","CF","CG","CH","CI","CK","CL","CM","CN","CO","CP","CR","CU","CV","CY","CX","CZ","DE","DJ","DK","DM","DO","DZ","EC","EE","EG","EH","ER","ES","ET","FI","FJ","FK","FM","FO","FR","GA","GB","GD","GE","GF","GG","GH","GI","GL","GM","GN","GP","GQ","GR","GS","GT","GU","GW","GY","HR","HT","HM","HN","HK","HU","IS","IN","ID", "IR","IQ","IE","IL","IM","IT","IO","JM","JP","JE","JO","KE","KG","KH","KI","KM","KN","KP","KR","KW","KY","KZ","LA","LB","LC","LI","LK","LR","LS","LT","LU","LV","LY","MA","MC","MD","ME","MG","MH","MK","ML","MM","MN","MO","MQ","MR","MS","MT","MU","MV","MW","MX","MY","MZ","NA","NC","NE","NF","NG","NI","NL","NO","NP","NR","NU","NZ","MP","OM","PA","PE","PF","PG","PH","PK","PL","PM","PN","PR","PS","PT","PW","PY","QA","RE","RO","RS","RU","RW","SA","SB","SD","SE","SC","SG","SH","SI","SJ","SK","SL","SM","SN","SO","SR","ST","SV","SY","SZ","TA","TC","TD","TF","TG","TH","TJ","TK","TL","TM","TN","TO","TR","TT","TV","TW","TZ","UA","UG","UM","US","UY","UZ","VA","VC","VE","VG","VI","VN","VU","WF","WS","YE","YT","YU","ZA","ZM","ZW","MAX" };
+
 typedef struct {
     int32_t         value;
     int32_t         param;
@@ -681,7 +683,7 @@ INT wifi_factoryReset()
         snprintf(cmd, sizeof(cmd), "rm -rf %s%d.conf", CONFIG_PREFIX, index);
         system(cmd);
     }
-    wifi_dbg_printf("\n[%s]: deleting hostapd conf file %s",__func__,conf_name);
+    //wifi_dbg_printf("\n[%s]: deleting hostapd conf file %s",__func__,conf_name);
     system("systemctl restart hostapd.service");
 
     return RETURN_OK;
@@ -857,10 +859,7 @@ INT wifi_init()                            //RDKB
     //Not intitializing macfilter for Turris-Omnia Platform for now
     //macfilter_init();
 
-    system("/usr/sbin/iw reg set US");
-    system("systemctl start hostapd.service");
-    sleep(2);//sleep to wait for hostapd to start
-
+    /*Removing the hardcoding of country_code*/
     WIFI_ENTRY_EXIT_DEBUG("Exiting %s:%d\n",__func__, __LINE__);
 
     return RETURN_OK;
@@ -943,19 +942,141 @@ INT wifi_createInitialConfigFiles()
     return RETURN_OK;
 }
 
-// outputs the country code to a max 64 character string
+/* wifi_getRadioCountryCode() function */
+/**
++* @description This function call is used to get the country code from device
++*
++* @param in_radioIndex : 0 - 2.4GHZ band, 1 - 5GHZ band
++* @param out_countrycode_name : read country code as a string from device
++*
++* @return The status of the operation
++* @retval RETURN_OK if successful
++* @retval RETURN_ERR if any error is detected
++*
++* @execution Synchronous
++* @sideeffect None
++*
++* @note This function must not suspend and must not invoke any blocking system
++* calls. It should probably just send a message to a driver event handler task.
++*
++*/
+
 INT wifi_getRadioCountryCode(INT radioIndex, CHAR *output_string)
 {
-    if (NULL == output_string)
+   int ret = 0;
+
+   WIFI_ENTRY_EXIT_DEBUG("Inside %s:%d\n",__func__, __LINE__);
+
+   wifi_dbg_printf("\n[%s]: radioIndex :  %d\n ",__func__,radioIndex);
+
+   char cmd[MAX_BUF_SIZE] = {0};
+
+   if(NULL == output_string){
+        wifi_dbg_printf("\n[%s]: NULL pointer,Radio Index : %d\n ",__func__,radioIndex);
+       return RETURN_ERR;
+    }
+   /*Validating input radio index */
+    if((radioIndex != 0) && (radioIndex != 1)) {
+        wifi_dbg_printf("\n[%s]: Invalid Radio index :  %d \n ",__func__,radioIndex);
         return RETURN_ERR;
-    snprintf(output_string, 64, "US");
+    }
+
+    sprintf(cmd,"iw reg get |grep -A1 global |grep country  |awk '{print $2}' |tr -d :");
+
+    ret = _syscmd(cmd, output_string, sizeof(output_string));
+
+    if(ret != 0) {
+        wifi_dbg_printf("\n[%s]: radio index %d, Error getting country code\n",__func__,radioIndex);
+        return RETURN_ERR;
+    }
+
+    wifi_dbg_printf("\n[%s]:CountryCode: %s \n ",__func__,output_string);
+
+    WIFI_ENTRY_EXIT_DEBUG("Exiting %s:%d\n",__func__, __LINE__);
 
     return RETURN_OK;
 }
 
-INT wifi_setRadioCountryCode(INT radioIndex, CHAR *CountryCode)
+/* wifi_setRadioCountryCode() function */
+/**
++* @description This function call is used to set the country code in device
++*
++* @param in_radioIndex : 0 - 2.4 GHZ band, 1 - 5 GHZ band
++* @param in_configCountryCode : configure the country code as a string in device
++*
++* @return The status of the operation
++* @retval RETURN_OK if successful
++* @retval RETURN_ERR if any error is detected
++*
++* @execution Synchronous
++* @sideeffect None
++*
++* @note This function must not suspend and must not invoke any blocking system
++* calls. It should probably just send a message to a driver event handler task.
++*
++*/
+
+INT wifi_setRadioCountryCode(INT radioIndex,CHAR *CountryCode)
 {
     //Set wifi config. Wait for wifi reset to apply
+
+    int ret = 0,i=0;
+    CHAR *RegulatoryDomain={"0"};
+    struct params params={'\0'};
+    char cmd[MAX_BUF_SIZE] = {0};
+    char cmdDefault[MAX_BUF_SIZE] = {0};
+    CHAR CountryCode_Store[2]={"US"};
+    int ivalue = 0;
+    
+    WIFI_ENTRY_EXIT_DEBUG("Inside %s:%d\n",__func__, __LINE__);
+
+    wifi_dbg_printf("\n[%s]: Radio index : %d , CountryCode : %s \n",__func__,radioIndex, CountryCode);
+    /*Validating input country string*/
+    if(NULL == CountryCode) {
+        wifi_dbg_printf("\n[%s]: NULL pointer, SetCountryCode : %d\n ",__func__,radioIndex);
+        return RETURN_ERR;
+    }
+
+    /*Validating input radio index number*/
+    if((radioIndex != 0) && (radioIndex != 1)) {
+        wifi_dbg_printf("\n[%s]: Invalid radioIndex :  %d\n ",__func__,radioIndex);
+        return RETURN_ERR;
+    }
+     //if country code==0, let iw reg set <> handle it
+    if(strcmp(CountryCode,RegulatoryDomain) == 0){
+      goto SKIPCountryCheck;
+      }
+
+    for(ivalue = wifi_countrycode_AC; ivalue < wifi_countrycode_max; ivalue++) {
+        if(strcmp(CountryCode, country_codeMap[ivalue]) == 0) {
+            break ;
+        }
+    }
+
+    if(wifi_countrycode_max == ivalue){
+        wifi_dbg_printf("\n[%s]:Country Code does not exist %s\n ",__func__,CountryCode);
+       return RETURN_ERR;
+    }
+
+SKIPCountryCheck:
+     
+    memcpy(CountryCode_Store, CountryCode, strlen(CountryCode)+1);
+
+    sprintf(cmd,"iw reg set %s",CountryCode);
+    ret = _syscmd(cmd, CountryCode, sizeof(CountryCode));
+     if(ret != 0) {
+        wifi_dbg_printf("\n[%s]:radio index %d, SetCountryCode ERROR : %d\n ",__func__,radioIndex,ret);
+        return RETURN_ERR;
+    }
+    sprintf(cmdDefault,"sed -i 's/country_code=.*/country_code='%s'/g' /etc/utopia/system_defaults",CountryCode_Store);
+    ret = _syscmd(cmdDefault, CountryCode_Store, sizeof(CountryCode_Store));
+     if(ret != 0) {
+        wifi_dbg_printf("\n[%s]:radio index %d, SetCountryCode ERROR : %d\n ",__func__,radioIndex,ret);
+        return RETURN_ERR;
+    }
+     
+    WIFI_ENTRY_EXIT_DEBUG("Exiting %s:%d\n",__func__, __LINE__);
+
     return RETURN_OK;
 }
 
@@ -8738,6 +8859,11 @@ int main(int argc,char **argv)
     int index;
     INT ret=0;
     char buf[1024]="";
+    int iretval = 0;
+    char getcountrycode[4]= {0};
+    char setcountrycode[4]= {0};
+    wifi_radio_operationParam_t operationParam;
+    
 
     WIFI_ENTRY_EXIT_DEBUG("Inside %s:%d\n",__func__, __LINE__);
     if(argc<3)
@@ -8769,6 +8895,63 @@ int main(int argc,char **argv)
         printf("Ap name is %s \n",buf);
         return 0;
     }
+
+    if(strstr(argv[1],"wifi_getRadioCountryCode") != NULL) {
+        if(argc < 1) {
+            printf("Insufficient arguments : wifi_getRadioCountryCode\n");
+            exit(-1);
+        }
+        if(strcmp(argv[2],"0") && strcmp(argv[2],"1")){
+            printf("wrong arguments, provide Radio index 0 or 1\n");
+            exit(-1);
+        }
+        index = atoi(argv[2]);
+
+        /*Get the country code from device*/
+        iretval = wifi_getRadioCountryCode(index,getcountrycode);
+        if(iretval != RETURN_OK) {
+            wifi_dbg_printf("\n[%s]: ERROR : Unable to get the country code for Radio Index %d\n ",__func__,index);
+           exit(-1);
+       }
+    }
+
+    if(strstr(argv[1],"wifi_setRadioCountryCode") != NULL) {
+                if (argc <= 3) {
+                printf("Insufficient arguments : wifi_setRadioCountryCode\n");
+                exit(-1);
+        }
+        if(strcmp(argv[2],"0") && strcmp(argv[2],"1")){
+            printf("wrong arguments, provide Radio index 0 or 1\n");
+            exit(-1);
+        }
+        index = atoi(argv[2]);
+        memmove(setcountrycode, argv[3],sizeof(argv[3]));
+        /*Set the country code in device*/
+        iretval = wifi_setRadioCountryCode(index,setcountrycode);
+        if(iretval != RETURN_OK) {
+            wifi_dbg_printf("\n[%s]: ERROR : Unable to set the country code for Radio Index %d\n ",__func__,index);
+           exit(-1);
+        }
+    }
+
+    if(strstr(argv[1],"wifi_getRadioOperatingParameters") != NULL) {
+        if(argc < 1) {
+            printf("Insufficient arguments : wifi_getRadioOperatingParameters\n");
+            exit(-1);
+        }
+        if(strcmp(argv[2],"0") && strcmp(argv[2],"1")){
+            printf("wrong arguments, provide Radio index 0 or 1\n");
+            exit(-1);
+        }
+
+        index = atoi(argv[2]);
+        iretval = wifi_getRadioOperatingParameters(index, &operationParam);
+        if(iretval != RETURN_OK) {
+            printf("ERROR : Unable to get the radio index %d operating parameters \n",index);
+            exit(-1);
+        }
+    }
+    
     if(strstr(argv[1], "wifi_getRadioAutoChannelEnable")!=NULL)
     {
         BOOL b = FALSE;
@@ -9120,6 +9303,11 @@ INT wifi_getRadioOperatingParameters(wifi_radio_index_t index, wifi_radio_operat
     ULONG channel;
     BOOL enabled;
     char buf[256];
+    CHAR output_string[4]; //stores two character of country code
+    INT status=0;
+    UINT countryCODE = wifi_countrycode_max;
+    int ivalue = 0;
+    
 
     WIFI_ENTRY_EXIT_DEBUG("Inside %s:%d\n",__func__, __LINE__);
     printf("Entering %s index = %d\n", __func__, (int)index);
@@ -9178,7 +9366,32 @@ INT wifi_getRadioOperatingParameters(wifi_radio_index_t index, wifi_radio_operat
     operationParam->channel = channel;
     operationParam->csa_beacon_count = 15; // XXX: hardcoded for now
 
-    operationParam->countryCode = wifi_countrycode_US; // XXX: hardcoded for now
+
+    memset(output_string, 0, sizeof(output_string));
+    /*Read country code name from turris GW device*/
+    ret = wifi_getRadioCountryCode(index, output_string);
+    if(ret != RETURN_OK) {
+        wifi_dbg_printf("\n[%s]:unable to get country code for %d radio index\n",__func__,index);
+        return RETURN_ERR;
+    }
+    /*comparing read country code with all country codes*/
+    for(ivalue = wifi_countrycode_AC; ivalue < wifi_countrycode_max; ivalue++) {
+        if(strcmp(output_string, country_codeMap[ivalue]) == 0) {
+            countryCODE = ivalue;
+            break;
+        }
+    }
+    if(ivalue == wifi_countrycode_max) {
+        operationParam->countryCode = wifi_countrycode_US;
+        wifi_dbg_printf("\n[%s], CountryCode does not exist, setting default to: %d",__func__,operationParam->countryCode);
+
+    }
+    /*Get the country code in integer */
+    operationParam->countryCode = countryCODE;
+    wifi_dbg_printf("\n[%s]:CountryName : %s, CountryCode : %d\n",__func__,country_codeMap[ivalue],countryCODE);
+
+
+    //operationParam->countryCode = wifi_countrycode_US; // XXX: hardcoded for now
 
     WIFI_ENTRY_EXIT_DEBUG("Exiting %s:%d\n",__func__, __LINE__);
     return RETURN_OK;
