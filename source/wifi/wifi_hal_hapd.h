@@ -45,11 +45,15 @@ typedef struct {
     hapd_cfg_field_t disassoc_low_ack;
     hapd_cfg_field_t driver;
     hapd_cfg_field_t eap_server;
+    hapd_cfg_field_t eht_oper_centr_freq_seg0_idx;
+    hapd_cfg_field_t eht_oper_chwidth;
     hapd_cfg_field_t ht_capab;
     hapd_cfg_field_t hw_mode;
     hapd_cfg_field_t ieee80211ac;
+    hapd_cfg_field_t ieee80211ax;
     hapd_cfg_field_t ieee80211d;
     hapd_cfg_field_t ieee80211n;
+    hapd_cfg_field_t ieee80211w;
     hapd_cfg_field_t interface;
     hapd_cfg_field_t ignore_broadcast_ssid;
     hapd_cfg_field_t logger_stdout;
@@ -57,6 +61,7 @@ typedef struct {
     hapd_cfg_field_t logger_syslog;
     hapd_cfg_field_t logger_syslog_level;
     hapd_cfg_field_t macaddr_acl;
+    hapd_cfg_field_t op_class;
     hapd_cfg_field_t preamble;
     hapd_cfg_field_t rrm_neighbor_report;
     hapd_cfg_field_t ssid;
