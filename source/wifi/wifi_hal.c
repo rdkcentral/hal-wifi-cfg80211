@@ -9184,6 +9184,17 @@ INT wifi_getRadioOperatingParameters(wifi_radio_index_t index, wifi_radio_operat
     return RETURN_OK;
 }
 
+// Outputs the bridge interface name assocated with the AP. String buffer must be pre-allocated by the caller
+static INT wifi_getBridgeName(INT apIndex, char *bridgename, INT bridgename_size)
+{
+    if (!bridgename || bridgename_size <= 0)
+        return RETURN_ERR;
+
+    wifi_hostapdRead(apIndex, "bridge", bridgename, bridgename_size);
+
+    return RETURN_OK;
+}
+
 static int array_index_to_vap_index(UINT radioIndex, int arrayIndex)
 {
     if (radioIndex != 0 && radioIndex != 1)
@@ -9222,7 +9233,12 @@ INT wifi_getRadioVapInfoMap(wifi_radio_index_t index, wifi_vap_info_map_t *map)
             return RETURN_ERR;
         }
 
-        strncpy(map->vap_array[i].bridge_name, "brlan0", sizeof(map->vap_array[i].bridge_name) - 1);
+        ret = wifi_getBridgeName(vap_index, map->vap_array[i].bridge_name, sizeof(map->vap_array[i].bridge_name));
+        if (ret != RETURN_OK)
+        {
+            printf("%s: failed to get BridgeName for index %d\n", __func__, i);
+            return RETURN_ERR;
+        }
 
         map->vap_array[i].vap_index = vap_index;
         map->vap_array[i].vap_mode = wifi_vap_mode_ap;
