@@ -8445,7 +8445,7 @@ INT wifi_getRadioChannels(INT radioIndex, wifi_channelMap_t *outputMap, INT outp
 //		* 5560 MHz [112] (disabled)
 //
 //		Below command should fetch channel numbers of each enabled channel in 5GHz band:
-        if (sprintf(cmd,"iw list | grep MHz | tr -d '\\t' | grep -v disabled | tr -d '*' | grep '^ 5' | awk '{print $3}' | tr -d '[]'") < 0) {
+        if (sprintf(cmd,"iw phy phy1 info | grep MHz | tr -d '\\t' | grep -v disabled | tr -d '*' | grep '^.* 5' | awk '{print $3}' | tr -d '[]'") < 0) {
             wifi_dbg_printf("%s: failed to build iw list command\n", __FUNCTION__);
             return RETURN_ERR;
         }
@@ -8467,7 +8467,7 @@ INT wifi_getRadioChannels(INT radioIndex, wifi_channelMap_t *outputMap, INT outp
             memset(cmd, 0, sizeof(cmd));
             // Below command should fetch string for DFS state (usable, available or unavailable)
             // Example line: "DFS state: usable (for 78930 sec)"
-            if (sprintf(cmd,"iw list | grep -A 2 '\\[%d\\]' | tr -d '\\t' | grep 'DFS state' | awk '{print $3}' | tr -d '\\n'", outputMap[i].ch_number) < 0) {
+            if (sprintf(cmd,"iw phy phy1 info | grep -A 2 '\\[%d\\]' | tr -d '\\t' | grep 'DFS state' | awk '{print $3}' | tr -d '\\n'", outputMap[i].ch_number) < 0) {
                 wifi_dbg_printf("%s: failed to build dfs state command\n", __FUNCTION__);
                 return RETURN_ERR;
             }
@@ -9288,7 +9288,7 @@ INT wifi_getRadioVapInfoMap(wifi_radio_index_t index, wifi_vap_info_map_t *map)
        /* mcast2ucast - TBD */
        map->vap_array[i].u.bss_info.mcast2ucast = false;
     }
-#ifdef _TURRIS_EXTENDER_
+#if defined(_TURRIS_EXTENDER_) || defined(_RPI_EXTENDER_)
     // vap indexes for bhaul-sta
     map->num_vaps = 6;
 
@@ -9446,7 +9446,7 @@ INT wifi_createVAP(wifi_radio_index_t index, wifi_vap_info_map_t *map)
             wifi_setSSIDEnable(vap_info->vap_index, vap_info->u.bss_info.enabled); // XXX: handle errors
             wifi_applySSIDSettings(vap_info->vap_index); // XXX: handle errors, don't call if no changes.
         }
-#ifdef _TURRIS_EXTENDER_
+#if defined(_TURRIS_EXTENDER_) || defined(_RPI_EXTENDER_)
         else if (vap_info->vap_mode == wifi_vap_mode_sta)
         {
             wifi_setSTAEnabled(vap_info->vap_index, vap_info->u.sta_info.enabled);
@@ -9678,7 +9678,7 @@ INT wifi_getHalCapability(wifi_hal_capability_t *cap)
             iface_info->index = array_index_to_vap_index(radioIndex, j);
             memset(output, 0, sizeof(output));
             if (iface_info >= 0 && (iface_info->index < 10 && wifi_getApName(iface_info->index, output) == RETURN_OK)
-#ifdef _TURRIS_EXTENDER_
+#if defined(_TURRIS_EXTENDER_) || defined(_RPI_EXTENDER_)
                                 || (wifi_getSTAName(iface_info->index, output) == RETURN_OK)
 #endif
             )
