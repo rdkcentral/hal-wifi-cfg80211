@@ -31,7 +31,7 @@
 #include <net/if.h>
 #define SOCK_PREFIX "/var/run/wpa_supplicant/"
 
-#ifdef _TURRIS_EXTENDER_
+#if defined(_TURRIS_EXTENDER_) || defined(_RPI_EXTENDER_)
 
 /* Helper wpa_supplicant events */
 #ifndef container_of
